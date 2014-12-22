@@ -1,5 +1,5 @@
 ;(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-/* globals window, XDomainRequest, XMLHttpRequest */
+/* globals window, XDomainRequest, XMLHttpRequest, FormData */
 
 var Q = require("q");
 
@@ -88,13 +88,38 @@ CORS.makeCORSRequest = function(options) {
   if (options.withCredentials !== false) {
     xhr.withCredentials = true;
   }
+
+  // If it contains files, make it into a mulitpart upload
+  if (options && options.data && options.data.files) {
+    console.log("converting to formdata ", options.data);
+
+    var data = new FormData();
+    for (var part in options.data) {
+      if (options.data.hasOwnProperty(part)) {
+        data.append(part, options.data[part]);
+      }
+    }
+    options.data = data;
+    xhr.setRequestHeader("Content-Type", "multipart/form-data");
+  } else {
+    if (options.data) {
+      options.data = JSON.stringify(options.data);
+    }
+  }
   //  }
+  var onProgress = function(e) {
+    if (e.lengthComputable) {
+      var percentComplete = (e.loaded/e.total)*100;
+      console.log("percentComplete", percentComplete);
+    }
+  };
+  xhr.addEventListener("progress", onProgress, false);
 
   xhr.onload = function(e, f, g) {
     var response = xhr.responseJSON || xhr.responseText || xhr.response;
     self.debug("Response from CORS request to " + options.url + ": " + response);
     if (xhr.status >= 400) {
-      self.warn("The request was unsuccesful " + xhr.statusText);
+      self.warn("The request to " + options.url + " was unsuccesful " + xhr.statusText);
       deferred.reject(response);
       return;
     }
@@ -118,10 +143,16 @@ CORS.makeCORSRequest = function(options) {
     self.bug("There was an error making the CORS request to " + options.url + " from " + window.location.href + " the app will not function normally. Please report this.");
     deferred.reject(e);
   };
-  if (options.data) {
-    xhr.send(JSON.stringify(options.data));
-  } else {
-    xhr.send();
+  try {
+    if (options.data) {
+      self.debug("sending ", options.data);
+      xhr.send(options.data);
+    } else {
+      xhr.send();
+    }
+  } catch (e) {
+    self.warn("Caught an exception when calling send on xhr", e);
+    deferred.reject(e);
   }
 
   return deferred.promise;
@@ -129,7 +160,7 @@ CORS.makeCORSRequest = function(options) {
 
 exports.CORS = CORS;
 
-},{"q":76}],2:[function(require,module,exports){
+},{"q":78}],2:[function(require,module,exports){
 var Diacritics = require("diacritic");
 var FieldDBObject = require("./FieldDBObject").FieldDBObject;
 
@@ -985,7 +1016,7 @@ Collection.prototype = Object.create(Object.prototype, {
 
 exports.Collection = Collection;
 
-},{"./FieldDBObject":4,"diacritic":75}],3:[function(require,module,exports){
+},{"./FieldDBObject":4,"diacritic":77}],3:[function(require,module,exports){
 var Q = require("q");
 var CORS = require("./CORS").CORS;
 
@@ -1135,7 +1166,7 @@ if (exports) {
   exports.FieldDBConnection = FieldDBConnection;
 }
 
-},{"./CORS":1,"q":76}],4:[function(require,module,exports){
+},{"./CORS":1,"q":78}],4:[function(require,module,exports){
 var process=require("__browserify_process");/* globals alert, confirm, navigator, Android */
 var CORS = require("./CORS").CORS;
 var Diacritics = require("diacritic");
@@ -2259,6 +2290,22 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
   },
 
 
+  addRelatedData: {
+    value: function(json) {
+      var relatedData;
+      if (this.datumFields && this.datumFields.relatedData) {
+        relatedData = this.datumFields.relatedData.json.relatedData || [];
+      } else if (this.relatedData) {
+        relatedData = this.relatedData;
+      } else {
+        this.relatedData = relatedData = [];
+      }
+
+      json.relation = "associated file";
+      relatedData.push(json);
+    }
+  },
+
   /**
    * Creates a deep copy of the object (not a reference)
    * @return {Object} a near-clone of the objcet
@@ -2369,88 +2416,88 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
 
 exports.FieldDBObject = FieldDBObject;
 
-},{"./../package.json":79,"./CORS":1,"__browserify_process":64,"diacritic":75,"q":76}],5:[function(require,module,exports){
+},{"./../package.json":82,"./CORS":1,"__browserify_process":66,"diacritic":77,"q":78}],5:[function(require,module,exports){
 var Router = Router || {};
 
 Router.routes = Router.routes || [];
 Router.routes.push({
-  path: "/:team/:corpusid/import/:importType",
+  path: "/:team/:corpusidentifier/import/:importType",
   angularRoute: {
     templateUrl: "views/import-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/import",
+  path: "/:team/:corpusidentifier/import",
   angularRoute: {
-     redirectTo: "/:team/:corpusid/import/data"
+     redirectTo: "/:team/:corpusidentifier/import/data"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/reports/:reportType",
+  path: "/:team/:corpusidentifier/reports/:reportType",
   angularRoute: {
     templateUrl: "views/reports-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/speakers/:speakerType",
+  path: "/:team/:corpusidentifier/speakers/:speakerType",
   angularRoute: {
     templateUrl: "views/speakers-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/participants",
+  path: "/:team/:corpusidentifier/participants",
   angularRoute: {
     templateUrl: "views/participants-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/consultants",
+  path: "/:team/:corpusidentifier/consultants",
   angularRoute: {
     templateUrl: "views/consultants-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/sessions",
+  path: "/:team/:corpusidentifier/sessions",
   angularRoute: {
     templateUrl: "views/sessions-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/datalists",
+  path: "/:team/:corpusidentifier/datalists",
   angularRoute: {
     templateUrl: "views/datalists-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/data",
+  path: "/:team/:corpusidentifier/data",
   angularRoute: {
     templateUrl: "views/all-data-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/search/:searchQuery",
+  path: "/:team/:corpusidentifier/search/:searchQuery",
   angularRoute: {
     templateUrl: "views/search-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid/:docid",
+  path: "/:team/:corpusidentifier/:docid",
   angularRoute: {
     templateUrl: "views/data-page.html",
     controller: "OverrideYourControllerHere"
   }
 });
 Router.routes.push({
-  path: "/:team/:corpusid",
+  path: "/:team/:corpusidentifier",
   angularRoute: {
     templateUrl: "views/corpus-page.html",
     controller: "OverrideYourControllerHere"
@@ -3771,9 +3818,9 @@ App.prototype = Object.create(FieldDBObject.prototype, /** @lends App.prototype 
         /*
          * Letting the url determine which corpus is loaded
          */
-        if (routeParams.corpusid) {
-          this.currentCorpusDashboard = this.team.validateUsername(routeParams.team).username + "/" + this.team.sanitizeStringForFileSystem(routeParams.corpusid).toLowerCase();
-          this.currentCorpusDashboardDBname = this.team.validateUsername(routeParams.team).username + "-" + this.team.sanitizeStringForFileSystem(routeParams.corpusid).toLowerCase();
+        if (routeParams.corpusidentifier) {
+          this.currentCorpusDashboard = this.team.validateUsername(routeParams.team).username + "/" + this.team.sanitizeStringForFileSystem(routeParams.corpusidentifier).toLowerCase();
+          this.currentCorpusDashboardDBname = this.team.validateUsername(routeParams.team).username + "-" + this.team.sanitizeStringForFileSystem(routeParams.corpusidentifier).toLowerCase();
           if (this.currentCorpusDashboardDBname.split("-").length < 2) {
             this.status = "Please try another url of the form teamname/corpusname " + this.currentCorpusDashboardDBname + " is not valid.";
             return;
@@ -4161,7 +4208,7 @@ App.prototype = Object.create(FieldDBObject.prototype, /** @lends App.prototype 
 });
 exports.App = App;
 
-},{"./../FieldDBObject":4,"./../Router":5,"./../activity/Activity":6,"./../corpus/Corpus":16,"./../data_list/DataList":22,"./../import/Import":41,"./../locales/Contextualizer":43,"./../search/Search":48,"./../user/Team":54,"./../user/User":55,"./../user/UserMask":56,"q":76}],8:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../Router":5,"./../activity/Activity":6,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../import/Import":42,"./../locales/Contextualizer":44,"./../search/Search":49,"./../user/Team":55,"./../user/User":56,"./../user/UserMask":57,"q":78}],8:[function(require,module,exports){
 var App = require("./App").App;
 
 /**
@@ -4383,10 +4430,10 @@ AudioPlayer.prototype = Object.create(Object.prototype, /** @lends AudioPlayer.p
 
 exports.AudioPlayer = AudioPlayer;
 
-},{"./HTML5Audio":12}],10:[function(require,module,exports){
+},{"./HTML5Audio":13}],10:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var AudioPlayer = require("./AudioPlayer").AudioPlayer;
-
+var mime = require("browserify-mime");
 /**
  * @class The AudioVideo is a type of FieldDBObject with any additional fields or
  * metadata that a team might use to ground/tag their primary data.
@@ -4404,7 +4451,7 @@ var AudioVideo = function AudioVideo(options) {
   FieldDBObject.apply(this, arguments);
 };
 
-var DEFAULT_BASE_SPEECH_URL = "https://localhost:6984";
+var DEFAULT_BASE_SPEECH_URL = "https://localhost:3184";
 AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVideo.prototype */ {
   constructor: {
     value: AudioVideo
@@ -4476,10 +4523,17 @@ AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVi
     }
   },
 
+  guessType: {
+    value: function(filename) {
+      var guessedType = mime.lookup(filename);
+      return guessedType;
+    }
+  },
+
   type: {
     get: function() {
       if (!this._type && this.filename) {
-        this._type = "audio/" + this.filename.split(".").pop();
+        this._type = this.guessType(this.filename);
       }
       return this._type || FieldDBObject.DEFAULT_STRING;
     },
@@ -4489,7 +4543,7 @@ AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVi
       }
       this.warn("type cannot be set, it is automatically determined from the filename. Not using: " + value);
       if (this.filename) {
-        value = "audio/" + this.filename.split(".").pop();
+        value = this.guessType(this.filename);
         this._type = value;
       }
     }
@@ -4500,6 +4554,7 @@ AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVi
       this.debug("Customizing toJSON ", includeEvenEmptyAttributes, removeEmptyAttributes);
       var json = FieldDBObject.prototype.toJSON.apply(this, arguments);
       delete json.audioPlayer;
+      json.type = this.type;
 
       return json;
     }
@@ -4509,7 +4564,401 @@ AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVi
 });
 exports.AudioVideo = AudioVideo;
 
-},{"./../FieldDBObject":4,"./AudioPlayer":9}],11:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./AudioPlayer":9,"browserify-mime":64}],11:[function(require,module,exports){
+/* globals document, window, navigator, FieldDB, Media, FileReader */
+var Q = require("q");
+var RecordMP3 = require("recordmp3js/js/recordmp3");
+
+/**
+ * @class AudioVideoRecorder is a minimal customization of the HTML5 media controller
+ *
+ * @name AudioVideoRecorder
+ *
+ * @extends Object
+ * @constructs
+ */
+var AudioVideoRecorder = function AudioVideoRecorder(options) {
+  if (!this._fieldDBtype) {
+    this._fieldDBtype = "AudioVideoRecorder";
+  }
+  if (this.options) {
+    console.log("AudioVideoRecorder was created with options but it doesnt accept options", options);
+  }
+  if (options && options.element) {
+    this.element = options.element;
+  }
+
+  Object.apply(this, arguments);
+};
+AudioVideoRecorder.Recorder = RecordMP3.Recorder;
+
+AudioVideoRecorder.prototype = Object.create(Object.prototype, /** @lends AudioVideoRecorder.prototype */ {
+  constructor: {
+    value: AudioVideoRecorder
+  },
+
+  isRecording: {
+    configurable: true,
+    get: function() {
+      return this._isRecording;
+    }
+  },
+
+  element: {
+    get: function() {
+      if (this.recorder) {
+        return this.recorder.element;
+      } else {
+        return null;
+      }
+    },
+    set: function(element) {
+      if (!element) {
+        console.warn("Cannot create an audio recorder, element was not passed in.");
+        return;
+      }
+      try {
+        this.recorder = new RecordMP3.Recorder({
+          element: element
+        });
+      } catch (e) {
+        console.warn("Cannot create an audio recorder.", e);
+      }
+    }
+  },
+
+  parent: {
+    get: function() {
+      if (this.recorder) {
+        return this.recorder.parent;
+      } else {
+        return null;
+      }
+    },
+    set: function(parent) {
+      if (!parent || !this.recorder) {
+        console.warn("Cannot set parent on a missing audio recorder, parent was not passed in.");
+        return;
+      }
+      this.recorder.parent = RecordMP3.parent = parent;
+    }
+  },
+
+  isPaused: {
+    configurable: true,
+    get: function() {
+      return this._isPaused;
+    }
+  },
+
+  recorderStartTime: {
+    configurable: true,
+    get: function() {
+      if (this._recordingStartTime) {
+        return this._recordingStartTime;
+      } else {
+        return 0;
+      }
+    }
+  },
+
+  isCordova: {
+    configurable: true,
+    get: function() {
+      // return false;
+      try {
+        if (!Media) {
+          console.log("We are most likely in Cordova, using Cordova instead of HTML5 audio");
+        }
+        return true;
+      } catch (e) {
+        console.log("We are most likely not in Cordova, using HTML5 audio", e);
+        return false;
+      }
+    }
+  },
+
+  getDuration: {
+    configurable: true,
+    value: function() {
+      return 0;
+    }
+  },
+
+  microphoneCheck: {
+    value: function() {
+      this.peripheralsCheck(false);
+    }
+  },
+  videoCheck: {
+    value: function() {
+      this.peripheralsCheck(true);
+    }
+  },
+  peripheralsCheck: {
+    value: function(withVideo, optionalElements) {
+      var application = {},
+        deferred = Q.defer(),
+        self = this;
+
+      if (FieldDB && FieldDB.FieldDBObject && FieldDB.FieldDBObject.application) {
+        application = FieldDB.FieldDBObject.application;
+      }
+      var errorInAudioVideoPeripheralsCheck = function(error) {
+        application.videoRecordingVerified = false;
+        application.audioRecordingVerified = false;
+        deferred.reject(error);
+      };
+
+      Q.nextTick(function() {
+
+        var waitUntilVideoElementIsRendered = function() {
+          if (!optionalElements) {
+            optionalElements = {
+              image: document.getElementById("video-snapshot"),
+              video: document.getElementById("video-preview"),
+              audio: document.getElementById("audio-preview"),
+              canvas: document.getElementById("video-snapshot-canvas"),
+            };
+          }
+          if (!optionalElements.canvas) {
+            errorInAudioVideoPeripheralsCheck("video-snapshot-canvas is not present, cant verify peripheralsCheck");
+            return;
+          }
+          optionalElements.canvas.width = 640;
+          optionalElements.canvas.height = 360;
+          var ctx = optionalElements.canvas.getContext("2d");
+          var displayMediaPreview = function(localMediaStream) {
+            if (localMediaStream) {
+              RecordMP3.audio_context = new RecordMP3.AudioContext();
+              RecordMP3.audio_source = RecordMP3.audio_context.createMediaStreamSource(localMediaStream);
+            }
+
+            if (withVideo) {
+              optionalElements.video.removeAttribute("hidden");
+              optionalElements.image.removeAttribute("hidden");
+              optionalElements.video.removeAttribute("class");
+              optionalElements.image.removeAttribute("class");
+              self.type = "video";
+              optionalElements.video.src = window.URL.createObjectURL(localMediaStream);
+            } else {
+              self.type = "audio";
+              optionalElements.audio.removeAttribute("hidden");
+              optionalElements.audio.removeAttribute("class");
+              optionalElements.audio.src = window.URL.createObjectURL(localMediaStream);
+            }
+
+            var takeSnapshot = function takeSnapshot() {
+              if (localMediaStream) {
+                ctx.drawImage(optionalElements.video, 0, 0);
+                // "image/webp" works in Chrome.
+                // Other browsers will fall back to image/png.
+                optionalElements.image.src = optionalElements.canvas.toDataURL("image/webp");
+              }
+            };
+            optionalElements.video.addEventListener("click", takeSnapshot, false);
+
+
+            // Note: onloadedmetadata doesn't fire in Chrome when using it with getUserMedia.
+            // See crbug.com/110938.
+            var onmedialoaded = function(e) {
+              // Ready to go. Do some stuff.
+              console.log("Video preview is working, take note of this in application so user can continue to the game.", e);
+              application.videoRecordingVerified = true;
+              application.audioRecordingVerified = true;
+              console.log("Turning of audio feedback since confirmed that the audio works.");
+              optionalElements.audio.muted = true;
+              optionalElements.video.muted = true;
+              navigator.geolocation.getCurrentPosition(function(position) {
+                console.warn("recieved position information");
+                if (FieldDB && FieldDB.FieldDBObject) {
+                  FieldDB.FieldDBObject.software = FieldDB.FieldDBObject.software || {};
+                  FieldDB.FieldDBObject.software.location = position.coords;
+                }
+              });
+
+              deferred.resolve("user clicked okay");
+            };
+            optionalElements.audio.onloadeddata = onmedialoaded;
+            optionalElements.audio.onloadedmetadata = onmedialoaded;
+            optionalElements.video.onloadeddata = onmedialoaded;
+            optionalElements.video.onloadedmetadata = onmedialoaded;
+
+          };
+
+          if (application.videoRecordingVerified) {
+            displayMediaPreview();
+            deferred.resolve();
+            return;
+          }
+
+          /* access camera and microphone
+              http://www.html5rocks.com/en/tutorials/getusermedia/intro/
+           */
+          navigator.getUserMedia = navigator.getUserMedia ||
+            navigator.webkitGetUserMedia ||
+            navigator.mozGetUserMedia ||
+            navigator.msGetUserMedia;
+
+          if (!navigator.getUserMedia) {
+            errorInAudioVideoPeripheralsCheck("The Microphone/Camera is not supported in your browser.");
+            return;
+          }
+
+          var errorCallback = function(e) {
+            console.warn("Error in peripheralsCheck", e);
+            errorInAudioVideoPeripheralsCheck("User refused access to camera and microphone!", e);
+            return;
+          };
+
+          navigator.getUserMedia({
+              video: {
+                mandatory: {
+                  maxWidth: optionalElements.canvas.width,
+                  maxHeight: optionalElements.canvas.height
+                }
+              },
+              audio: true,
+              geolocation: true
+            },
+            displayMediaPreview,
+            errorCallback
+          );
+        };
+
+        if (!optionalElements.video) {
+          console.warn("waiting for the video preview to get rendered, did you forget to declare it somewhere? ");
+          window.setTimeout(waitUntilVideoElementIsRendered, 2000);
+        } else {
+          waitUntilVideoElementIsRendered();
+        }
+      });
+      return deferred.promise;
+    }
+  },
+  record: {
+    configurable: true,
+    value: function(optionalSource, optionalDelay) {
+      console.log("todo record " + this._src + " optionalSource " + optionalSource + " optionalDelay " + optionalDelay);
+    }
+  },
+
+  pause: {
+    configurable: true,
+    value: function() {
+      console.log("todo pause recording");
+    }
+  },
+
+  togglePause: {
+    configurable: true,
+    value: function() {
+      console.log("todo toogle pause recording");
+    }
+  },
+
+  stop: {
+    configurable: true,
+    value: function(optionalFormat) {
+      var deferred = Q.defer();
+      Q.nextTick(function() {
+        console.log("todo stop recording", optionalFormat);
+      });
+      return deferred.promise;
+    }
+  },
+
+  exportRecording: {
+    configurable: true,
+    value: function(optionalFormat) {
+      var deferred = Q.defer();
+      Q.nextTick(function() {
+        console.log("todo export recording", optionalFormat);
+      });
+      return deferred.promise;
+    }
+  },
+
+  /**
+   * Creates an audio element and uploads the file, and makes it so you can download the file.
+   * @param  {RecordMP3.Recorder} recorder Reference to the recorder object (this function is called in a cllback in the recorder)
+   * @param  {Blob} mp3Data  [description]
+   * @param  {DOMElement} element  [description]
+   * @return {Promise}          [description]
+   */
+  showFile: {
+    configurable: true,
+    value: function(recorder, mp3Data, element) {
+      var deferred = Q.defer(),
+        callingContext = this;
+      console.log("showing file on ", element);
+      Q.nextTick(function() {
+        // callingContext. = "Uploading";
+        var reader = new FileReader();
+        reader.onload = function(event) {
+          // var fd = new FormData();
+          var mp3Name = "audio_recording_" + new Date().getTime() + ".mp3";
+          // var xhr = new XMLHttpRequest();
+          var url = event.target.result;
+
+          // Add audio element and download URL to page.
+          var showAudioArea = document.createElement("p");
+          var au = document.createElement("audio");
+          var hf = document.createElement("a");
+
+          au.controls = true;
+          au.src = url;
+          hf.href = url;
+          hf.download = mp3Name;
+          hf.innerHTML = mp3Name;
+          showAudioArea.appendChild(au);
+          showAudioArea.appendChild(hf);
+          console.log("todo dont need to append this audio after upload");
+
+          element.appendChild(showAudioArea);
+          callingContext.parent.addFile({
+            filename: mp3Name,
+            description: "Recorded using spreadsheet app",
+            data: url
+          });
+          // callingContext.status += "\nmp3name = " + mp3Name;
+          // fd.append("filename", encodeURIComponent(mp3Name));
+
+          // xhr.open("POST", new FieldDB.AudioVideo().BASE_SPEECH_URL + "/upload/extract/utterances", true);
+          // xhr.onreadystatechange = function(response) {
+          //   console.log(response);
+          //   if (xhr.readyState === 4) {
+          //     // callingContext.status += "\nMP3 uploaded.";
+          //     // recorder.clear();
+
+          //   }
+          //   console.warn("dont clear if upload fialed");
+          // };
+          // xhr.send(fd);
+            recorder.clear();
+        };
+        reader.readAsDataURL(mp3Data);
+
+      });
+      return deferred.promise;
+    }
+  }
+
+});
+
+
+RecordMP3.workerPath = "bower_components/recordmp3js/";
+RecordMP3.showFile = AudioVideoRecorder.prototype.showFile;
+try {
+  RecordMP3.AudioContext = window.AudioContext;
+  RecordMP3.URL = window.URL;
+} catch (e) {
+  console.warn("Audio recorder won't work, AudioContext is not defined", e);
+}
+
+exports.AudioVideoRecorder = AudioVideoRecorder;
+
+},{"q":78,"recordmp3js/js/recordmp3":79}],12:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var AudioVideo = require("./AudioVideo").AudioVideo;
 
@@ -4560,7 +5009,7 @@ AudioVideos.prototype = Object.create(Collection.prototype, /** @lends AudioVide
 });
 exports.AudioVideos = AudioVideos;
 
-},{"./../Collection":2,"./AudioVideo":10}],12:[function(require,module,exports){
+},{"./../Collection":2,"./AudioVideo":10}],13:[function(require,module,exports){
 /* globals window */
 
 /**
@@ -4798,7 +5247,7 @@ HTML5Audio.prototype = Object.create(Object.prototype, /** @lends HTML5Audio.pro
 
 exports.HTML5Audio = HTML5Audio;
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -4899,7 +5348,7 @@ Comment.prototype = Object.create(FieldDBObject.prototype, /** @lends Comment.pr
 
 exports.Comment = Comment;
 
-},{"./../FieldDBObject":4}],14:[function(require,module,exports){
+},{"./../FieldDBObject":4}],15:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var Comment = require("./Comment").Comment;
 
@@ -4947,7 +5396,7 @@ Comments.prototype = Object.create(Collection.prototype, /** @lends Comments.pro
 });
 exports.Comments = Comments;
 
-},{"./../Collection":2,"./Comment":13}],15:[function(require,module,exports){
+},{"./../Collection":2,"./Comment":14}],16:[function(require,module,exports){
 /* globals window */
 var AES = require("crypto-js/aes");
 var CryptoEncoding = require("crypto-js/enc-utf8");
@@ -5131,7 +5580,7 @@ Confidential.prototype = Object.create(FieldDBObject.prototype, /** @lends Confi
 
 exports.Confidential = Confidential;
 
-},{"./../FieldDBObject":4,"atob":62,"btoa":65,"crypto-js/aes":66,"crypto-js/enc-utf8":70}],16:[function(require,module,exports){
+},{"./../FieldDBObject":4,"atob":63,"btoa":67,"crypto-js/aes":68,"crypto-js/enc-utf8":72}],17:[function(require,module,exports){
 /* global window, OPrime */
 var CorpusMask = require("./CorpusMask").CorpusMask;
 var Datum = require("./../datum/Datum").Datum;
@@ -5582,7 +6031,7 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
 
         self.fetchCollection(self.api).then(function(corpora) {
           self.debug(corpora);
-          if (corpora.length > 0) {
+          if (corpora.length === 1) {
             self.runningloadOrCreateCorpusByPouchName = false;
             delete self.loadOrCreateCorpusByPouchNameDeferred;
             self.id = corpora[0]._id;
@@ -5592,6 +6041,8 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
             }, function(reason) {
               deferred.reject(reason);
             });
+          } else if (corpora.length > 0) {
+            console.warn("Impossibel to have more than one corpus for this dbname");
           } else {
             tryAgainInCaseThereWasALag(corpora);
           }
@@ -6366,7 +6817,7 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
 exports.Corpus = Corpus;
 exports.FieldDatabase = Corpus;
 
-},{"./../Collection":2,"./../FieldDBObject":4,"./../datum/Datum":24,"./../datum/DatumFields":26,"./../user/Speaker":53,"./CorpusMask":17,"./corpus.json":20,"./psycholinguistics-corpus.json":21,"q":76}],17:[function(require,module,exports){
+},{"./../Collection":2,"./../FieldDBObject":4,"./../datum/Datum":25,"./../datum/DatumFields":27,"./../user/Speaker":54,"./CorpusMask":18,"./corpus.json":21,"./psycholinguistics-corpus.json":22,"q":78}],18:[function(require,module,exports){
 var Confidential = require("./../confidentiality_encryption/Confidential").Confidential;
 var Database = require("./Database").Database;
 var DatumFields = require("./../datum/DatumFields").DatumFields;
@@ -6710,11 +7161,11 @@ CorpusMask.prototype = Object.create(Database.prototype, /** @lends CorpusMask.p
 
   preferredTemplate: {
     get: function() {
-      this.warn("preferredTemplate is deprecated, use dbname instead.");
+      this.warn("preferredTemplate is deprecated, use preferredDatumTemplate instead.");
       return this.preferredDatumTemplate;
     },
     set: function(value) {
-      this.warn("preferredTemplate is deprecated, please use dbname instead.");
+      this.warn("preferredTemplate is deprecated, please use preferredDatumTemplate instead.");
       this.preferredDatumTemplate = value;
     }
   }
@@ -6722,7 +7173,7 @@ CorpusMask.prototype = Object.create(Database.prototype, /** @lends CorpusMask.p
 });
 exports.CorpusMask = CorpusMask;
 
-},{"./../Collection":2,"./../FieldDBObject":4,"./../comment/Comments":14,"./../confidentiality_encryption/Confidential":15,"./../datum/DatumFields":26,"./../datum/DatumStates":28,"./../datum/DatumTags":30,"./../user/UserPreference":57,"./Database":18,"./corpus.json":20}],18:[function(require,module,exports){
+},{"./../Collection":2,"./../FieldDBObject":4,"./../comment/Comments":15,"./../confidentiality_encryption/Confidential":16,"./../datum/DatumFields":27,"./../datum/DatumStates":29,"./../datum/DatumTags":31,"./../user/UserPreference":58,"./Database":19,"./corpus.json":21}],19:[function(require,module,exports){
 /* globals localStorage */
 
 var Q = require("q");
@@ -7162,7 +7613,7 @@ Database.prototype = Object.create(FieldDBObject.prototype, /** @lends Database.
 
 exports.Database = Database;
 
-},{"../CORS":1,"../FieldDBObject":4,"./../confidentiality_encryption/Confidential":15,"q":76}],19:[function(require,module,exports){
+},{"../CORS":1,"../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"q":78}],20:[function(require,module,exports){
 var FieldDBDatabase = require("./Database").Database;
 
 var PsycholinguisticsDatabase = function PsycholinguisticsDatabase(options) {
@@ -7186,7 +7637,7 @@ PsycholinguisticsDatabase.prototype = Object.create(FieldDBDatabase.prototype, /
 
 exports.PsycholinguisticsDatabase = PsycholinguisticsDatabase;
 
-},{"./Database":18}],20:[function(require,module,exports){
+},{"./Database":19}],21:[function(require,module,exports){
 module.exports={
   "title": "",
   "titleAsUrl": "",
@@ -7815,7 +8266,7 @@ module.exports={
   }]
 }
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 module.exports={
   "description": "This is first database which contains the results of your experiment, you can use it to play with the app... When you want to make a real database, click New : Database/Corpus",
   "participantFields": [ {
@@ -7845,7 +8296,7 @@ module.exports={
   }]
 }
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 /* globals FieldDB */
 var Datum = require("./../datum/Datum").Datum;
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
@@ -8197,7 +8648,7 @@ DataList.prototype = Object.create(FieldDBObject.prototype, /** @lends DataList.
 
 exports.DataList = DataList;
 
-},{"./../FieldDBObject":4,"./../comment/Comments":14,"./../datum/Datum":24,"./../datum/Document":31,"./../datum/DocumentCollection":32,"./../locales/ContextualizableObject":42,"q":76}],23:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../comment/Comments":15,"./../datum/Datum":25,"./../datum/Document":32,"./../datum/DocumentCollection":33,"./../locales/ContextualizableObject":43,"q":78}],24:[function(require,module,exports){
 var DataList = require("./DataList").DataList;
 var DocumentCollection = require("./../datum/DocumentCollection").DocumentCollection;
 var Comments = require("./../comment/Comments").Comments;
@@ -8288,9 +8739,10 @@ SubExperimentDataList.prototype = Object.create(DataList.prototype, /** @lends S
 });
 exports.SubExperimentDataList = SubExperimentDataList;
 
-},{"./../comment/Comments":14,"./../datum/DocumentCollection":32,"./../locales/ContextualizableObject":42,"./DataList":22}],24:[function(require,module,exports){
+},{"./../comment/Comments":15,"./../datum/DocumentCollection":33,"./../locales/ContextualizableObject":43,"./DataList":23}],25:[function(require,module,exports){
 /* globals window, $, _ , OPrime*/
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
+var AudioVideo = require("./../audio_video/AudioVideo").AudioVideo;
 var AudioVideos = require("./../audio_video/AudioVideos").AudioVideos;
 var Comments = require("./../comment/Comments").Comments;
 var Datums = require("./../Collection").Collection;
@@ -8389,6 +8841,21 @@ Datum.prototype = Object.create(FieldDBObject.prototype, /** @lends Datum.protot
     set: function(value) {
       this.debug("datumFields is depreacted, just use fields instead");
       return this.fields = value;
+    }
+  },
+
+  addFile: {
+    value: function(newFileDetails) {
+      if (newFileDetails.type.indexOf("audio") === 0) {
+        this.audioVideo.add(newFileDetails);
+      } else if (newFileDetails.type.indexOf("video") === 0) {
+        this.audioVideo.add(newFileDetails);
+      } else if (newFileDetails.type.indexOf("image") === 0) {
+        this.images.add(newFileDetails);
+      } else {
+        var regularizedJSON = new AudioVideo(newFileDetails).toJSON();
+        this.addRelatedData(regularizedJSON);
+      }
     }
   },
 
@@ -9539,7 +10006,7 @@ Datum.prototype = Object.create(FieldDBObject.prototype, /** @lends Datum.protot
 });
 exports.Datum = Datum;
 
-},{"./../Collection":2,"./../FieldDBObject":4,"./../audio_video/AudioVideos":11,"./../comment/Comments":14,"./../image/Images":40,"./DatumField":25,"./DatumFields":26,"./DatumStates":28,"./DatumTags":30}],25:[function(require,module,exports){
+},{"./../Collection":2,"./../FieldDBObject":4,"./../audio_video/AudioVideo":10,"./../audio_video/AudioVideos":12,"./../comment/Comments":15,"./../image/Images":41,"./DatumField":26,"./DatumFields":27,"./DatumStates":29,"./DatumTags":31}],26:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var Confidential = require("./../confidentiality_encryption/Confidential").Confidential;
 
@@ -10376,7 +10843,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
 
 exports.DatumField = DatumField;
 
-},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":15}],26:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16}],27:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var DatumField = require("./../datum/DatumField").DatumField;
 
@@ -10425,7 +10892,7 @@ DatumFields.prototype = Object.create(Collection.prototype, /** @lends DatumFiel
 });
 exports.DatumFields = DatumFields;
 
-},{"./../Collection":2,"./../datum/DatumField":25}],27:[function(require,module,exports){
+},{"./../Collection":2,"./../datum/DatumField":26}],28:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var UserMask = require("./../user/UserMask").UserMask;
 
@@ -10500,7 +10967,7 @@ DatumState.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumSt
 });
 exports.DatumState = DatumState;
 
-},{"./../FieldDBObject":4,"./../user/UserMask":56}],28:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../user/UserMask":57}],29:[function(require,module,exports){
 var DatumTags = require("./DatumTags").DatumTags;
 var DatumState = require("./DatumState").DatumState;
 
@@ -10545,7 +11012,7 @@ DatumStates.prototype = Object.create(DatumTags.prototype, /** @lends DatumState
 });
 exports.DatumStates = DatumStates;
 
-},{"./DatumState":27,"./DatumTags":30}],29:[function(require,module,exports){
+},{"./DatumState":28,"./DatumTags":31}],30:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -10574,7 +11041,7 @@ DatumTag.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumTag.
 });
 exports.DatumTag = DatumTag;
 
-},{"./../FieldDBObject":4}],30:[function(require,module,exports){
+},{"./../FieldDBObject":4}],31:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var DatumTag = require("./DatumTag").DatumTag;
 
@@ -10620,7 +11087,7 @@ DatumTags.prototype = Object.create(Collection.prototype, /** @lends DatumTags.p
 });
 exports.DatumTags = DatumTags;
 
-},{"./../Collection":2,"./DatumTag":29}],31:[function(require,module,exports){
+},{"./../Collection":2,"./DatumTag":30}],32:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 var Document = function Document(options) {
@@ -10692,7 +11159,7 @@ Document.prototype = Object.create(FieldDBObject.prototype, /** @lends Document.
 
 exports.Document = Document;
 
-},{"./../FieldDBObject":4}],32:[function(require,module,exports){
+},{"./../FieldDBObject":4}],33:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var Document = require("./Document").Document;
 
@@ -10738,7 +11205,7 @@ DocumentCollection.prototype = Object.create(Collection.prototype, /** @lends Do
 });
 exports.DocumentCollection = DocumentCollection;
 
-},{"./../Collection":2,"./Document":31}],33:[function(require,module,exports){
+},{"./../Collection":2,"./Document":32}],34:[function(require,module,exports){
 var Stimulus = require("./Stimulus").Stimulus,
   Q = require("q");
 
@@ -11004,7 +11471,7 @@ Response.prototype = Object.create(Stimulus.prototype, /** @lends Response.proto
 });
 exports.Response = Response;
 
-},{"./Stimulus":34,"q":76}],34:[function(require,module,exports){
+},{"./Stimulus":35,"q":78}],35:[function(require,module,exports){
 var Datum = require("./Datum").Datum;
 
 /**
@@ -11098,7 +11565,7 @@ Stimulus.prototype = Object.create(Datum.prototype, /** @lends Stimulus.prototyp
 });
 exports.Stimulus = Stimulus;
 
-},{"./Datum":24}],35:[function(require,module,exports){
+},{"./Datum":25}],36:[function(require,module,exports){
 if ("undefined" === typeof window) {
   var window = {};
 }
@@ -11137,7 +11604,7 @@ if ("undefined" === typeof window) {
 
 })(window || exports)
 
-},{}],36:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {};/**
  * FieldDB
  * A open ended database for  evolving data collection projects
@@ -11161,6 +11628,8 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   var DataList = require("./data_list/DataList").DataList;
   var SubExperimentDataList = require("./data_list/SubExperimentDataList").SubExperimentDataList;
   var AudioVideo = require("./audio_video/AudioVideo").AudioVideo;
+  var AudioVideos = require("./audio_video/AudioVideos").AudioVideos;
+  var AudioVideoRecorder = require("./audio_video/AudioVideoRecorder").AudioVideoRecorder;
   var Datum = require("./datum/Datum").Datum;
   var Stimulus = require("./datum/Stimulus").Stimulus;
   var Response = require("./datum/Response").Response;
@@ -11193,6 +11662,8 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   FieldDB.DataList = DataList;
   FieldDB.SubExperimentDataList = SubExperimentDataList;
   FieldDB.AudioVideo = AudioVideo;
+  FieldDB.AudioVideos = AudioVideos;
+  FieldDB.AudioVideoRecorder = AudioVideoRecorder;
   FieldDB.Datum = Datum;
   FieldDB.Stimulus = Stimulus;
   FieldDB.Response = Response;
@@ -11235,7 +11706,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   console.log("------------------------------------------------------------------------");
 }(typeof exports === "object" && exports || this));
 
-},{"./CORS":1,"./FieldDBConnection":3,"./FieldDBObject":4,"./Router":5,"./app/App":7,"./app/PsycholinguisticsApp":8,"./audio_video/AudioVideo":10,"./corpus/Corpus":16,"./corpus/CorpusMask":17,"./corpus/Database":18,"./corpus/PsycholinguisticsDatabase":19,"./data_list/DataList":22,"./data_list/SubExperimentDataList":23,"./datum/Datum":24,"./datum/Document":31,"./datum/Response":33,"./datum/Stimulus":34,"./export/Export":35,"./import/Import":41,"./locales/Contextualizer":43,"./search/Search":48,"./user/Consultant":51,"./user/Participant":52,"./user/Speaker":53,"./user/Team":54,"./user/User":55,"./user/UserMask":56,"q":76}],37:[function(require,module,exports){
+},{"./CORS":1,"./FieldDBConnection":3,"./FieldDBObject":4,"./Router":5,"./app/App":7,"./app/PsycholinguisticsApp":8,"./audio_video/AudioVideo":10,"./audio_video/AudioVideoRecorder":11,"./audio_video/AudioVideos":12,"./corpus/Corpus":17,"./corpus/CorpusMask":18,"./corpus/Database":19,"./corpus/PsycholinguisticsDatabase":20,"./data_list/DataList":23,"./data_list/SubExperimentDataList":24,"./datum/Datum":25,"./datum/Document":32,"./datum/Response":34,"./datum/Stimulus":35,"./export/Export":36,"./import/Import":42,"./locales/Contextualizer":44,"./search/Search":49,"./user/Consultant":52,"./user/Participant":53,"./user/Speaker":54,"./user/Team":55,"./user/User":56,"./user/UserMask":57,"q":78}],38:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -11280,7 +11751,7 @@ HotKey.prototype = Object.create(FieldDBObject.prototype, /** @lends HotKey.prot
 });
 exports.HotKey = HotKey;
 
-},{"./../FieldDBObject":4}],38:[function(require,module,exports){
+},{"./../FieldDBObject":4}],39:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var HotKey = require("./HotKey").HotKey;
 
@@ -11329,7 +11800,7 @@ HotKeys.prototype = Object.create(Collection.prototype, /** @lends HotKeys.proto
 });
 exports.HotKeys = HotKeys;
 
-},{"./../Collection":2,"./HotKey":37}],39:[function(require,module,exports){
+},{"./../Collection":2,"./HotKey":38}],40:[function(require,module,exports){
 var AudioVideo = require("./../audio_video/AudioVideo").AudioVideo;
 
 /**
@@ -11360,7 +11831,7 @@ Image.prototype = Object.create(AudioVideo.prototype, /** @lends Image.prototype
 });
 exports.Image = Image;
 
-},{"./../audio_video/AudioVideo":10}],40:[function(require,module,exports){
+},{"./../audio_video/AudioVideo":10}],41:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var Image = require("./Image").Image;
 
@@ -11399,10 +11870,10 @@ Images.prototype = Object.create(Collection.prototype, /** @lends Images.prototy
 });
 exports.Images = Images;
 
-},{"./../Collection":2,"./Image":39}],41:[function(require,module,exports){
-/* globals OPrime, window, escape, $, FileReader */
-var AudioVideo = require("./../FieldDBObject").FieldDBObject;
-var AudioVideos = require("./../Collection").Collection;
+},{"./../Collection":2,"./Image":40}],42:[function(require,module,exports){
+/* globals window, escape, $, FileReader, FormData, atob,  unescape, Blob */
+var AudioVideo = require("./../audio_video/AudioVideo").AudioVideo;
+var AudioVideos = require("./../audio_video/AudioVideos").AudioVideos;
 var Collection = require("./../Collection").Collection;
 var CORS = require("./../CORS").CORS;
 var Corpus = require("./../corpus/Corpus").Corpus;
@@ -11435,6 +11906,31 @@ var _ = require("underscore");
  * @tutorial tests/CorpusTest.js
  */
 
+//http://stackoverflow.com/questions/4998908/convert-data-uri-to-file-then-append-to-formdata
+var dataURItoBlob = function(dataURI) {
+  // convert base64/URLEncoded data component to raw binary data held in a string
+  var byteString;
+  if (dataURI.split(",")[0].indexOf("base64") >= 0) {
+    byteString = atob(dataURI.split(",")[1]);
+  } else {
+    byteString = unescape(dataURI.split(",")[1]);
+  }
+
+  // separate out the mime component
+  var mimeString = dataURI.split(",")[0].split(":")[1].split(";")[0];
+
+  // write the bytes of the string to a typed array
+  var ia = new Uint8Array(byteString.length);
+  for (var i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+
+  return new Blob([ia], {
+    type: mimeString
+  });
+};
+
+
 
 var getUnique = function(arrayObj) {
   var u = {},
@@ -11458,6 +11954,10 @@ var Import = function Import(options) {
   }
   this.debug(" new import ", options);
   FieldDBObject.apply(this, arguments);
+  this.progress = {
+    total: 0,
+    completed: 0
+  };
 };
 
 Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prototype */ {
@@ -11647,6 +12147,8 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
         var headers = [];
         if (self.importType === "participants") {
           self.importFields = new DatumFields(self.corpus.participantFields.clone());
+        } else if (self.importType === "audioVideo") {
+          self.importFields = new DatumFields();
         } else {
           self.importFields = new DatumFields(self.corpus.datumFields.clone());
         }
@@ -11659,6 +12161,9 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
             correspondingDatumField[0].id = item;
             if (self.importType === "participants") {
               correspondingDatumField[0].labelExperimenters = item;
+            } else if (self.importType === "audioVideo") {
+              console.log("this is an audioVideo import but we aren doing anything with the csv");
+              // correspondingDatumField[0].labelFieldLinguists = item;
             } else {
               correspondingDatumField[0].labelFieldLinguists = item;
             }
@@ -11750,11 +12255,13 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
               confidential: self.corpus.confidential,
               fields: new DatumFields(JSON.parse(JSON.stringify(headers)))
             });
+          } else if (self.importType === "audioVideo") {
+            docToSave = new AudioVideo();
+            docToSave.description = self.rawText; //TODO look into the textgrid import
           } else {
             docToSave = new Datum({
               datumFields: new DatumFields(JSON.parse(JSON.stringify(headers)))
             });
-
           }
           var testForEmptyness = "";
           for (var index = 0; index < row.length; index++) {
@@ -11773,6 +12280,9 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
             //            }
             if (self.importType === "participants") {
               docToSave.fields[headers[index].id].value = item.trim();
+            } else if (self.importType === "audioVideo") {
+              console.log("this is an audioVideo but we arent doing anything with the headers");
+              // docToSave.datumFields[headers[index].id].value = item.trim();
             } else {
               docToSave.datumFields[headers[index].id].value = item.trim();
             }
@@ -11810,6 +12320,10 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
               self.progress.completed++;
             });
             savePromises.push(promise);
+          } else if (self.importType === "audioVideo") {
+            console.log("not doing anything for an audio video import");
+          } else {
+            console.log("not doing anything for a datum import");
           }
         });
 
@@ -12241,8 +12755,11 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
       }
       var rows = text.split("\n");
       if (rows.length < 3) {
-        rows = text.split("\r");
-        this.status = this.status + " Detected a \r line ending.";
+        var macrows = text.split("\r");
+        if (macrows.length > rows.length) {
+          rows = macrows;
+          this.status = this.status + " Detected a \r line ending.";
+        }
       }
       var firstrow = rows[0];
       var hasQuotes = false;
@@ -12268,13 +12785,17 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
       }
       /* get the first line and set it to be the header by default */
       var header = [];
-      if (rows.length > 3) {
+      if (rows.length > 1) {
         firstrow = firstrow;
         if (hasQuotes) {
           header = firstrow.trim().replace(/^"/, "").replace(/"$/, "").split("", "");
         } else {
           header = this.parseLineCSV(firstrow);
         }
+      } else if (rows.length === 1) {
+        header = rows[0].map(function() {
+          return "";
+        });
       }
       this.extractedHeader = header;
 
@@ -12303,7 +12824,12 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
     value: function(lineCSV) {
       // parse csv line by line into array
       var CSV = [];
-
+      var csvCharacter = ",";
+      this.debug(lineCSV, typeof lineCSV);
+      var matches = lineCSV.split(csvCharacter);
+      if (matches.length < 2) {
+        csvCharacter = ";";
+      }
       // Insert space before character ",". This is to anticipate
       // "split" in IE
       // try this:
@@ -12314,9 +12840,9 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
       //
       // You will see unexpected result!
       //
-      lineCSV = lineCSV.replace(/,/g, " ,");
+      lineCSV = lineCSV.replace(new RegExp(csvCharacter, "g"), " " + csvCharacter);
 
-      lineCSV = lineCSV.split(/,/g);
+      lineCSV = lineCSV.split(new RegExp(csvCharacter, "g"));
 
       // This is continuing of "split" issue in IE
       // remove all trailing space in each field
@@ -12334,7 +12860,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
         if (lineCSV[i].match(/"$/)) {
           if (fstart >= 0) {
             for (j = fstart + 1; j <= i; j++) {
-              lineCSV[fstart] = lineCSV[fstart] + "," + lineCSV[j];
+              lineCSV[fstart] = lineCSV[fstart] + csvCharacter + lineCSV[j];
               lineCSV[j] = "-DELETED-";
             }
             fstart = -1;
@@ -12649,61 +13175,207 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
     }
   },
 
+  uploadFiles: {
+    value: function(files) {
+      var deferred = Q.defer(),
+        self = this;
+
+      self.error = "";
+      self.status = "";
+
+      Q.nextTick(function() {
+        var uploadUrl = new AudioVideo().BASE_SPEECH_URL + "/upload/extract/utterances";
+        // var data = {
+        //   files: files,
+        //   token: self.token,
+        //   dbname: self.dbname,
+        //   username: self.username,
+        //   returnTextGrid: self.returnTextGrid
+        // };
+        //
+        var data = new FormData();
+        // for (var ?fileIndex = 0; fileIndex > files.length; fileIndex++) {
+        // data.append("file" + fileIndex, files[fileIndex]);
+        // }
+        // data.files = files;
+        self.todo("use the files passed instead of jquery ", files);
+        // http://stackoverflow.com/questions/24626177/how-to-create-an-image-file-from-a-dataurl
+        if (files.indexOf("data") === 0) {
+          // data.append("data", files); //test new split
+
+
+          // var base64 = files.split("base64,")[1];
+          var blob = dataURItoBlob(files);
+          // blob.name = "file_" + Date.now() + "." + blob.type.split("/")[1];
+          // blob.lastModfied = Date.now();
+          // blob.lastModifiedDate = new Date(blob.lastModfied);
+          // fd.append("canvasImage", blob);
+
+          //http://www.nczonline.net/blog/2012/06/05/working-with-files-in-javascript-part-5-blobs/
+          // var reconstructedFile =  new File("file_" + Date.now() + ".mp3", blob, "audio/mpeg");
+
+          //http://stackoverflow.com/questions/8390855/how-to-instantiate-a-file-object-in-javascript
+          files = [blob];
+
+        }
+
+        $.each(files, function(i, file) {
+          data.append(i, file);
+        });
+
+        // data.append("files", files);
+        data.append("token", self.uploadtoken);
+        data.append("pouchname", self.dbname);
+        data.append("username", self.username);
+        data.append("returnTextGrid", self.returnTextGrid);
+
+        self.audioVideo = null;
+        // this.model.audioVideo.reset();
+        $.ajax({
+          url: uploadUrl,
+          type: "post",
+          // dataType: 'json',
+          cache: false,
+          // withCredentials: false,
+          contentType: false,
+          processData: false,
+          data: data,
+          success: function(results) {
+            if (results && results.status === 200) {
+              self.uploadDetails = results;
+              self.files = results.files;
+              self.status = "File(s) uploaded and utterances were extracted.";
+              var messages = [];
+              self.rawText = "";
+              /* Check for any textgrids which failed */
+              for (var fileIndex = 0; fileIndex < results.files.length; fileIndex++) {
+                if (results.files[fileIndex].textGridStatus >= 400) {
+                  console.log(results.files[fileIndex]);
+                  var instructions = results.files[fileIndex].textGridInfo;
+                  if (results.files[fileIndex].textGridStatus >= 500) {
+                    instructions = " Please report this error to us at support@lingsync.org ";
+                  }
+                  messages.push("Generating the textgrid for " + results.files[fileIndex].fileBaseName + " seems to have failed. " + instructions);
+                  results.files[fileIndex].filename = results.files[fileIndex].fileBaseName + ".mp3";
+                  results.files[fileIndex].URL = new AudioVideo().BASE_SPEECH_URL + "/" + self.corpus.dbname + "/" + results.files[fileIndex].fileBaseName + ".mp3";
+                  results.files[fileIndex].description = results.files[fileIndex].description || "File from import";
+                  self.addAudioVideoFile(results.files[fileIndex]);
+                } else {
+                  self.downloadTextGrid(results.files[fileIndex]);
+                }
+              }
+              if (messages.length > 0) {
+                self.status = messages.join(", ");
+                // $(self.el).find(".status").html(self.get("status"));
+                // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(messages.join(", "), "alert-danger", "Import:");
+              }
+            } else {
+              console.log(results);
+              var message = "Upload might have failed to complete processing on your file(s). Please report this error to us at support@lingsync.org ";
+              self.status = message + ": " + JSON.stringify(results);
+              // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(message, "alert-danger", "Import:");
+            }
+            // $(self.el).find(".status").html(self.get("status"));
+          },
+          error: function(response) {
+            var reason = {};
+            if (response && response.responseJSON) {
+              reason = response.responseJSON;
+            } else {
+              var message = "Error contacting the server. ";
+              if (response.status >= 500) {
+                message = message + " Please report this error to us at support@lingsync.org ";
+              } else if (response.status === 413) {
+                message = message + " Your file is too big for upload, please try using FFMpeg to convert it to an mp3 for upload (you can still use your original video/audio in the app when the utterance chunking is done on an mp3.) ";
+              } else {
+                message = message + " Are you offline? If you are online and you still recieve this error, please report it to us: ";
+              }
+              reason = {
+                status: response.status,
+                userFriendlyErrors: [message + response.status]
+              };
+            }
+            console.log(reason);
+            if (reason && reason.userFriendlyErrors) {
+              self.status = "";
+              self.error = "Upload error: " + reason.userFriendlyErrors.join(" ");
+              self.bug(self.error);
+              // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(reason.userFriendlyErrors.join(" "), "alert-danger", "Import:");
+              // $(self.el).find(".status").html(self.get("status"));
+            }
+          }
+        });
+        self.status = "Contacting server...";
+        // $(this.el).find(".status").html(this.model.get("status"));
+
+      });
+      return deferred.promise;
+    }
+  },
 
   downloadTextGrid: {
     value: function(fileDetails) {
       var self = this;
-      var textridUrl = OPrime.audioUrl + "/" + this.pouchname + "/" + fileDetails.fileBaseName + ".TextGrid";
-      $.ajax({
+      var textridUrl = new AudioVideo().BASE_SPEECH_URL + "/" + this.corpus.dbname + "/" + fileDetails.fileBaseName + ".TextGrid";
+      CORS.makeCORSRequest({
         url: textridUrl,
-        type: "get",
-        // dataType: "text",
-        success: function(results) {
-          if (results) {
-            fileDetails.textgrid = results;
-            var syllables = "unknown";
-            if (fileDetails.syllablesAndUtterances && fileDetails.syllablesAndUtterances.syllableCount) {
-              syllables = fileDetails.syllablesAndUtterances.syllableCount;
-            }
-            var pauses = "unknown";
-            if (fileDetails.syllablesAndUtterances && fileDetails.syllablesAndUtterances.pauseCount) {
-              pauses = parseInt(fileDetails.syllablesAndUtterances.pauseCount, 10);
-            }
-            var utteranceCount = 1;
-            if (pauses > 0) {
-              utteranceCount = pauses + 2;
-            }
-            var message = " Downloaded Praat TextGrid which contained a count of roughly " + syllables + " syllables and auto detected utterances for " + fileDetails.fileBaseName + " The utterances were not automatically transcribed for you, you can either save the textgrid and transcribe them using Praat, or continue to import them and transcribe them after.";
-            fileDetails.description = message;
-            self.status = self.status + "<br/>" + message;
-            self.fileDetails = self.status + message;
+        type: "GET",
+        withCredentials: false
+      }).then(function(results) {
+        if (results) {
+          fileDetails.textgrid = results;
+          var syllables = "unknown";
+          if (fileDetails.syllablesAndUtterances && fileDetails.syllablesAndUtterances.syllableCount) {
+            syllables = fileDetails.syllablesAndUtterances.syllableCount;
+          }
+          var pauses = "unknown";
+          if (fileDetails.syllablesAndUtterances && fileDetails.syllablesAndUtterances.pauseCount) {
+            pauses = parseInt(fileDetails.syllablesAndUtterances.pauseCount, 10);
+          }
+          var utteranceCount = 1;
+          if (pauses > 0) {
+            utteranceCount = pauses + 2;
+          }
+          var message = " Downloaded Praat TextGrid which contained a count of roughly " + syllables + " syllables and auto detected utterances for " + fileDetails.fileBaseName + " The utterances were not automatically transcribed for you, you can either save the textgrid and transcribe them using Praat, or continue to import them and transcribe them after.";
+          fileDetails.description = message;
+          self.status = self.status + "<br/>" + message;
+          self.fileDetails = self.status + message;
+          if (window && window.appView && typeof window.appView.toastUser === "function") {
             window.appView.toastUser(message, "alert-info", "Import:");
-            self.rawText = self.rawText.trim() + "\n\n\nFile name = " + fileDetails.fileBaseName + ".mp3\n" + results;
+          }
+          self.rawText = self.rawText.trim() + "\n\n\nFile name = " + fileDetails.fileBaseName + ".mp3\n" + results;
+          if (!self.parent) {
             self.importTextGrid(self.rawText, null);
           } else {
-            self.debug(results);
-            fileDetails.textgrid = "Error result was empty. " + results;
+            self.debug("Not showing second import step, this looks like its audio import only.");
           }
-        },
-        error: function(response) {
-          var reason = {};
-          if (response && response.responseJSON) {
-            reason = response.responseJSON;
+          fileDetails.filename = fileDetails.fileBaseName + ".mp3";
+          fileDetails.URL = new AudioVideo().BASE_SPEECH_URL + "/" + self.corpus.dbname + "/" + fileDetails.fileBaseName + ".mp3";
+          self.addAudioVideoFile(fileDetails);
+        } else {
+          self.debug(results);
+          fileDetails.textgrid = "Error result was empty. " + results;
+        }
+      }, function(response) {
+        var reason = {};
+        if (response && response.responseJSON) {
+          reason = response.responseJSON;
+        } else {
+          var message = "Error contacting the server. ";
+          if (response.status >= 500) {
+            message = message + " Please report this error to us at support@lingsync.org ";
           } else {
-            var message = "Error contacting the server. ";
-            if (response.status >= 500) {
-              message = message + " Please report this error to us at support@lingsync.org ";
-            } else {
-              message = message + " Are you offline? If you are online and you still recieve this error, please report it to us: ";
-            }
-            reason = {
-              status: response.status,
-              userFriendlyErrors: [message + response.status]
-            };
+            message = message + " Are you offline? If you are online and you still recieve this error, please report it to us: ";
           }
-          self.debug(reason);
-          if (reason && reason.userFriendlyErrors) {
-            self.status = fileDetails.fileBaseName + "import error: " + reason.userFriendlyErrors.join(" ");
+          reason = {
+            status: response.status,
+            userFriendlyErrors: [message + response.status]
+          };
+        }
+        self.debug(reason);
+        if (reason && reason.userFriendlyErrors) {
+          self.status = fileDetails.fileBaseName + "import error: " + reason.userFriendlyErrors.join(" ");
+          if (window && window.appView && typeof window.appView.toastUser === "function") {
             window.appView.toastUser(reason.userFriendlyErrors.join(" "), "alert-danger", "Import:");
           }
         }
@@ -12712,15 +13384,22 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
   },
 
   addAudioVideoFile: {
-    value: function(url) {
+    value: function(details) {
       if (!this.audioVideo) {
         this.audioVideo = new AudioVideos();
       }
-      this.audioVideo.add(new AudioVideo({
-        filename: url.substring(url.lastIndexOf("/") + 1),
-        URL: url,
-        description: "File from import"
-      }));
+      var audioVideo = new AudioVideo(details);
+      this.audioVideo.add(audioVideo);
+      if (this.parent) {
+        if (!this.parent.audioVideo) {
+          this.parent.audioVideo = new AudioVideos();
+        } else if (Object.prototype.toString.call(this.parent.audioVideo) === "[object Array]") {
+          this.parent.audioVideo = new AudioVideos(this.parent.audioVideo);
+        }
+        this.parent.audioVideo.add(audioVideo);
+        this.parent.saved = "no";
+        // this.asCSV = [];
+      }
     }
   },
 
@@ -12912,6 +13591,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
       this.debug("added a datum to the collection");
     }
   },
+
   /**
    * Reads the import's array of files using a supplied readOptions or using
    * the readFileIntoRawText function which uses the browsers FileReader API.
@@ -12938,13 +13618,16 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
 
         var fileDetails = [];
         var files = self.files;
+        var filesToUpload = [];
 
         self.progress.total = files.length;
         for (var i = 0, file; file = files[i]; i++) {
           var details = [escape(file.name), file.type || "n/a", "-", file.size, "bytes, last modified:", file.lastModifiedDate ? file.lastModifiedDate.toLocaleDateString() : "n/a"].join(" ");
           self.status = self.status + "; " + details;
           fileDetails.push(JSON.parse(JSON.stringify(file)));
-          if (options.readOptions) {
+          if (file.type && (file.type.indexOf("audio") > -1 || file.type.indexOf("video") > -1 || file.type.indexOf("image") > -1)) {
+            filesToUpload.push(file);
+          } else if (options.readOptions) {
             promisses.push(options.readOptions.readFileFunction.apply(self, [{
               file: file.name,
               start: options.start,
@@ -12959,6 +13642,9 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
           }
         }
 
+        if (filesToUpload.length > 0) {
+          promisses.push(self.uploadFiles(self.files));
+        }
         self.fileDetails = fileDetails;
 
         Q.allSettled(promisses).then(function(results) {
@@ -13150,7 +13836,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
 
 exports.Import = Import;
 
-},{"./../CORS":1,"./../Collection":2,"./../FieldDBObject":4,"./../corpus/Corpus":16,"./../data_list/DataList":22,"./../datum/Datum":24,"./../datum/DatumField":25,"./../datum/DatumFields":26,"./../user/Participant":52,"q":76,"textgrid":77,"underscore":78}],42:[function(require,module,exports){
+},{"./../CORS":1,"./../Collection":2,"./../FieldDBObject":4,"./../audio_video/AudioVideo":10,"./../audio_video/AudioVideos":12,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../datum/Datum":25,"./../datum/DatumField":26,"./../datum/DatumFields":27,"./../user/Participant":53,"q":78,"textgrid":80,"underscore":81}],43:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject,
   Q = require("q");
 
@@ -13395,7 +14081,7 @@ ContextualizableObject.prototype = Object.create(Object.prototype, /** @lends Co
 });
 exports.ContextualizableObject = ContextualizableObject;
 
-},{"./../FieldDBObject":4,"q":76}],43:[function(require,module,exports){
+},{"./../FieldDBObject":4,"q":78}],44:[function(require,module,exports){
 var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {};/* globals window */
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var ELanguages = require("./ELanguages").ELanguages;
@@ -13835,7 +14521,7 @@ Contextualizer.prototype = Object.create(FieldDBObject.prototype, /** @lends Con
 
 exports.Contextualizer = Contextualizer;
 
-},{"./../CORS":1,"./../FieldDBObject":4,"./ELanguages":44,"./elanguages.json":45,"./en/messages.json":46,"./es/messages.json":47,"q":76}],44:[function(require,module,exports){
+},{"./../CORS":1,"./../FieldDBObject":4,"./ELanguages":45,"./elanguages.json":46,"./en/messages.json":47,"./es/messages.json":48,"q":78}],45:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
@@ -13881,7 +14567,7 @@ ELanguages.prototype = Object.create(Collection.prototype, /** @lends ELanguages
 });
 exports.ELanguages = ELanguages;
 
-},{"./../Collection":2,"./../FieldDBObject":4}],45:[function(require,module,exports){
+},{"./../Collection":2,"./../FieldDBObject":4}],46:[function(require,module,exports){
 module.exports=[{
   "iso": "Non applicable",
   "name": "NA",
@@ -14620,7 +15306,7 @@ module.exports=[{
   "nativeName": "Saɯ cueŋƅ, Saw cuengh"
 }]
 
-},{}],46:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 module.exports={
   "application_title" : {
     "message" : "LingSync beta",
@@ -15216,7 +15902,7 @@ module.exports={
   }
 }
 
-},{}],47:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 module.exports={
   "application_title" : {
     "message" : "iCampo beta"
@@ -15746,7 +16432,7 @@ module.exports={
     "message" : "Más"
   }
 }
-},{}],48:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -15810,7 +16496,7 @@ Search.prototype = Object.create(FieldDBObject.prototype, /** @lends Search.prot
 });
 exports.Search = Search;
 
-},{"./../FieldDBObject":4}],49:[function(require,module,exports){
+},{"./../FieldDBObject":4}],50:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -15864,7 +16550,7 @@ InsertUnicode.prototype = Object.create(FieldDBObject.prototype, /** @lends Inse
 });
 exports.InsertUnicode = InsertUnicode;
 
-},{"./../FieldDBObject":4}],50:[function(require,module,exports){
+},{"./../FieldDBObject":4}],51:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var InsertUnicode = require("./UnicodeSymbol").InsertUnicode;
 
@@ -16172,7 +16858,7 @@ InsertUnicodes.prototype = Object.create(Collection.prototype, /** @lends Insert
 });
 exports.InsertUnicodes = InsertUnicodes;
 
-},{"./../Collection":2,"./UnicodeSymbol":49}],51:[function(require,module,exports){
+},{"./../Collection":2,"./UnicodeSymbol":50}],52:[function(require,module,exports){
 var Speaker = require("./Speaker").Speaker;
 var DEFAULT_CORPUS_MODEL = require("./../corpus/corpus.json");
 
@@ -16223,7 +16909,7 @@ Consultant.prototype = Object.create(Speaker.prototype, /** @lends Consultant.pr
 });
 exports.Consultant = Consultant;
 
-},{"./../corpus/corpus.json":20,"./Speaker":53}],52:[function(require,module,exports){
+},{"./../corpus/corpus.json":21,"./Speaker":54}],53:[function(require,module,exports){
 /* globals FieldDB */
 var Speaker = require("./Speaker").Speaker;
 var DEFAULT_CORPUS_MODEL = require("./../corpus/corpus.json");
@@ -16281,7 +16967,7 @@ Participant.prototype = Object.create(Speaker.prototype, /** @lends Participant.
 });
 exports.Participant = Participant;
 
-},{"./../corpus/corpus.json":20,"./Speaker":53}],53:[function(require,module,exports){
+},{"./../corpus/corpus.json":21,"./Speaker":54}],54:[function(require,module,exports){
 var Confidential = require("./../confidentiality_encryption/Confidential").Confidential;
 var DatumFields = require("./../datum/DatumFields").DatumFields;
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
@@ -16793,7 +17479,7 @@ Speaker.prototype = Object.create(UserMask.prototype, /** @lends Speaker.prototy
 });
 exports.Speaker = Speaker;
 
-},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":15,"./../corpus/corpus.json":20,"./../datum/DatumFields":26,"./UserMask":56}],54:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"./../corpus/corpus.json":21,"./../datum/DatumFields":27,"./UserMask":57}],55:[function(require,module,exports){
 var UserMask = require("./UserMask").UserMask;
 
 /**
@@ -16875,7 +17561,7 @@ Team.prototype = Object.create(UserMask.prototype, /** @lends Team.prototype */ 
 
 exports.Team = Team;
 
-},{"./UserMask":56}],55:[function(require,module,exports){
+},{"./UserMask":57}],56:[function(require,module,exports){
 var UserMask = require("./UserMask").UserMask;
 var UserPreference = require("./UserPreference").UserPreference;
 var DEFAULT_USER_MODEL = require("./user.json");
@@ -17006,7 +17692,7 @@ User.prototype = Object.create(UserMask.prototype, /** @lends User.prototype */ 
 });
 exports.User = User;
 
-},{"./UserMask":56,"./UserPreference":57,"./user.json":58}],56:[function(require,module,exports){
+},{"./UserMask":57,"./UserPreference":58,"./user.json":59}],57:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var MD5 = require("MD5");
 
@@ -17285,7 +17971,7 @@ UserMask.prototype = Object.create(FieldDBObject.prototype, /** @lends UserMask.
 
 exports.UserMask = UserMask;
 
-},{"./../FieldDBObject":4,"MD5":59}],57:[function(require,module,exports){
+},{"./../FieldDBObject":4,"MD5":60}],58:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var HotKeys = require("./../hotkey/HotKeys").HotKeys;
 var InsertUnicodes = require("./../unicode/UnicodeSymbols").InsertUnicodes;
@@ -17432,7 +18118,7 @@ UserPreference.prototype = Object.create(FieldDBObject.prototype, /** @lends Use
 });
 exports.UserPreference = UserPreference;
 
-},{"./../FieldDBObject":4,"./../hotkey/HotKeys":38,"./../unicode/UnicodeSymbols":50}],58:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../hotkey/HotKeys":39,"./../unicode/UnicodeSymbols":51}],59:[function(require,module,exports){
 module.exports={
   "_id": "",
   "jsonType": "user",
@@ -17609,7 +18295,7 @@ module.exports={
   "accessibleDBS": []
 }
 
-},{}],59:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function(){
   var crypt = require('crypt'),
       utf8 = require('charenc').utf8,
@@ -17771,7 +18457,7 @@ var Buffer=require("__browserify_Buffer");(function(){
 
 })();
 
-},{"__browserify_Buffer":63,"charenc":60,"crypt":61}],60:[function(require,module,exports){
+},{"__browserify_Buffer":65,"charenc":61,"crypt":62}],61:[function(require,module,exports){
 var charenc = {
   // UTF-8 encoding
   utf8: {
@@ -17806,7 +18492,7 @@ var charenc = {
 
 module.exports = charenc;
 
-},{}],61:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 (function() {
   var base64map
       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
@@ -17904,7 +18590,7 @@ module.exports = charenc;
   module.exports = crypt;
 })();
 
-},{}],62:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function () {
   "use strict";
 
@@ -17915,7 +18601,1821 @@ var Buffer=require("__browserify_Buffer");(function () {
   module.exports = atob;
 }());
 
-},{"__browserify_Buffer":63}],63:[function(require,module,exports){
+},{"__browserify_Buffer":65}],64:[function(require,module,exports){
+//this file was generated
+"use strict"
+var mime = module.exports = {
+    lookup: function (path, fallback) {
+  var ext = path.replace(/.*[\.\/]/, '').toLowerCase();
+
+  return this.types[ext] || fallback || this.default_type;
+}
+  , default_type: "application/octet-stream"
+  , types: {
+  "123": "application/vnd.lotus-1-2-3",
+  "ez": "application/andrew-inset",
+  "aw": "application/applixware",
+  "atom": "application/atom+xml",
+  "atomcat": "application/atomcat+xml",
+  "atomsvc": "application/atomsvc+xml",
+  "ccxml": "application/ccxml+xml",
+  "cdmia": "application/cdmi-capability",
+  "cdmic": "application/cdmi-container",
+  "cdmid": "application/cdmi-domain",
+  "cdmio": "application/cdmi-object",
+  "cdmiq": "application/cdmi-queue",
+  "cu": "application/cu-seeme",
+  "davmount": "application/davmount+xml",
+  "dbk": "application/docbook+xml",
+  "dssc": "application/dssc+der",
+  "xdssc": "application/dssc+xml",
+  "ecma": "application/ecmascript",
+  "emma": "application/emma+xml",
+  "epub": "application/epub+zip",
+  "exi": "application/exi",
+  "pfr": "application/font-tdpfr",
+  "gml": "application/gml+xml",
+  "gpx": "application/gpx+xml",
+  "gxf": "application/gxf",
+  "stk": "application/hyperstudio",
+  "ink": "application/inkml+xml",
+  "inkml": "application/inkml+xml",
+  "ipfix": "application/ipfix",
+  "jar": "application/java-archive",
+  "ser": "application/java-serialized-object",
+  "class": "application/java-vm",
+  "js": "application/javascript",
+  "json": "application/json",
+  "jsonml": "application/jsonml+json",
+  "lostxml": "application/lost+xml",
+  "hqx": "application/mac-binhex40",
+  "cpt": "application/mac-compactpro",
+  "mads": "application/mads+xml",
+  "mrc": "application/marc",
+  "mrcx": "application/marcxml+xml",
+  "ma": "application/mathematica",
+  "nb": "application/mathematica",
+  "mb": "application/mathematica",
+  "mathml": "application/mathml+xml",
+  "mbox": "application/mbox",
+  "mscml": "application/mediaservercontrol+xml",
+  "metalink": "application/metalink+xml",
+  "meta4": "application/metalink4+xml",
+  "mets": "application/mets+xml",
+  "mods": "application/mods+xml",
+  "m21": "application/mp21",
+  "mp21": "application/mp21",
+  "mp4s": "application/mp4",
+  "doc": "application/msword",
+  "dot": "application/msword",
+  "mxf": "application/mxf",
+  "bin": "application/octet-stream",
+  "dms": "application/octet-stream",
+  "lrf": "application/octet-stream",
+  "mar": "application/octet-stream",
+  "so": "application/octet-stream",
+  "dist": "application/octet-stream",
+  "distz": "application/octet-stream",
+  "pkg": "application/octet-stream",
+  "bpk": "application/octet-stream",
+  "dump": "application/octet-stream",
+  "elc": "application/octet-stream",
+  "deploy": "application/octet-stream",
+  "oda": "application/oda",
+  "opf": "application/oebps-package+xml",
+  "ogx": "application/ogg",
+  "omdoc": "application/omdoc+xml",
+  "onetoc": "application/onenote",
+  "onetoc2": "application/onenote",
+  "onetmp": "application/onenote",
+  "onepkg": "application/onenote",
+  "oxps": "application/oxps",
+  "xer": "application/patch-ops-error+xml",
+  "pdf": "application/pdf",
+  "pgp": "application/pgp-encrypted",
+  "asc": "application/pgp-signature",
+  "sig": "application/pgp-signature",
+  "prf": "application/pics-rules",
+  "p10": "application/pkcs10",
+  "p7m": "application/pkcs7-mime",
+  "p7c": "application/pkcs7-mime",
+  "p7s": "application/pkcs7-signature",
+  "p8": "application/pkcs8",
+  "ac": "application/pkix-attr-cert",
+  "cer": "application/pkix-cert",
+  "crl": "application/pkix-crl",
+  "pkipath": "application/pkix-pkipath",
+  "pki": "application/pkixcmp",
+  "pls": "application/pls+xml",
+  "ai": "application/postscript",
+  "eps": "application/postscript",
+  "ps": "application/postscript",
+  "cww": "application/prs.cww",
+  "pskcxml": "application/pskc+xml",
+  "rdf": "application/rdf+xml",
+  "rif": "application/reginfo+xml",
+  "rnc": "application/relax-ng-compact-syntax",
+  "rl": "application/resource-lists+xml",
+  "rld": "application/resource-lists-diff+xml",
+  "rs": "application/rls-services+xml",
+  "gbr": "application/rpki-ghostbusters",
+  "mft": "application/rpki-manifest",
+  "roa": "application/rpki-roa",
+  "rsd": "application/rsd+xml",
+  "rss": "application/rss+xml",
+  "rtf": "application/rtf",
+  "sbml": "application/sbml+xml",
+  "scq": "application/scvp-cv-request",
+  "scs": "application/scvp-cv-response",
+  "spq": "application/scvp-vp-request",
+  "spp": "application/scvp-vp-response",
+  "sdp": "application/sdp",
+  "setpay": "application/set-payment-initiation",
+  "setreg": "application/set-registration-initiation",
+  "shf": "application/shf+xml",
+  "smi": "application/smil+xml",
+  "smil": "application/smil+xml",
+  "rq": "application/sparql-query",
+  "srx": "application/sparql-results+xml",
+  "gram": "application/srgs",
+  "grxml": "application/srgs+xml",
+  "sru": "application/sru+xml",
+  "ssdl": "application/ssdl+xml",
+  "ssml": "application/ssml+xml",
+  "tei": "application/tei+xml",
+  "teicorpus": "application/tei+xml",
+  "tfi": "application/thraud+xml",
+  "tsd": "application/timestamped-data",
+  "plb": "application/vnd.3gpp.pic-bw-large",
+  "psb": "application/vnd.3gpp.pic-bw-small",
+  "pvb": "application/vnd.3gpp.pic-bw-var",
+  "tcap": "application/vnd.3gpp2.tcap",
+  "pwn": "application/vnd.3m.post-it-notes",
+  "aso": "application/vnd.accpac.simply.aso",
+  "imp": "application/vnd.accpac.simply.imp",
+  "acu": "application/vnd.acucobol",
+  "atc": "application/vnd.acucorp",
+  "acutc": "application/vnd.acucorp",
+  "air": "application/vnd.adobe.air-application-installer-package+zip",
+  "fcdt": "application/vnd.adobe.formscentral.fcdt",
+  "fxp": "application/vnd.adobe.fxp",
+  "fxpl": "application/vnd.adobe.fxp",
+  "xdp": "application/vnd.adobe.xdp+xml",
+  "xfdf": "application/vnd.adobe.xfdf",
+  "ahead": "application/vnd.ahead.space",
+  "azf": "application/vnd.airzip.filesecure.azf",
+  "azs": "application/vnd.airzip.filesecure.azs",
+  "azw": "application/vnd.amazon.ebook",
+  "acc": "application/vnd.americandynamics.acc",
+  "ami": "application/vnd.amiga.ami",
+  "apk": "application/vnd.android.package-archive",
+  "cii": "application/vnd.anser-web-certificate-issue-initiation",
+  "fti": "application/vnd.anser-web-funds-transfer-initiation",
+  "atx": "application/vnd.antix.game-component",
+  "mpkg": "application/vnd.apple.installer+xml",
+  "m3u8": "application/vnd.apple.mpegurl",
+  "swi": "application/vnd.aristanetworks.swi",
+  "iota": "application/vnd.astraea-software.iota",
+  "aep": "application/vnd.audiograph",
+  "mpm": "application/vnd.blueice.multipass",
+  "bmi": "application/vnd.bmi",
+  "rep": "application/vnd.businessobjects",
+  "cdxml": "application/vnd.chemdraw+xml",
+  "mmd": "application/vnd.chipnuts.karaoke-mmd",
+  "cdy": "application/vnd.cinderella",
+  "cla": "application/vnd.claymore",
+  "rp9": "application/vnd.cloanto.rp9",
+  "c4g": "application/vnd.clonk.c4group",
+  "c4d": "application/vnd.clonk.c4group",
+  "c4f": "application/vnd.clonk.c4group",
+  "c4p": "application/vnd.clonk.c4group",
+  "c4u": "application/vnd.clonk.c4group",
+  "c11amc": "application/vnd.cluetrust.cartomobile-config",
+  "c11amz": "application/vnd.cluetrust.cartomobile-config-pkg",
+  "csp": "application/vnd.commonspace",
+  "cdbcmsg": "application/vnd.contact.cmsg",
+  "cmc": "application/vnd.cosmocaller",
+  "clkx": "application/vnd.crick.clicker",
+  "clkk": "application/vnd.crick.clicker.keyboard",
+  "clkp": "application/vnd.crick.clicker.palette",
+  "clkt": "application/vnd.crick.clicker.template",
+  "clkw": "application/vnd.crick.clicker.wordbank",
+  "wbs": "application/vnd.criticaltools.wbs+xml",
+  "pml": "application/vnd.ctc-posml",
+  "ppd": "application/vnd.cups-ppd",
+  "car": "application/vnd.curl.car",
+  "pcurl": "application/vnd.curl.pcurl",
+  "dart": "application/vnd.dart",
+  "rdz": "application/vnd.data-vision.rdz",
+  "uvf": "application/vnd.dece.data",
+  "uvvf": "application/vnd.dece.data",
+  "uvd": "application/vnd.dece.data",
+  "uvvd": "application/vnd.dece.data",
+  "uvt": "application/vnd.dece.ttml+xml",
+  "uvvt": "application/vnd.dece.ttml+xml",
+  "uvx": "application/vnd.dece.unspecified",
+  "uvvx": "application/vnd.dece.unspecified",
+  "uvz": "application/vnd.dece.zip",
+  "uvvz": "application/vnd.dece.zip",
+  "fe_launch": "application/vnd.denovo.fcselayout-link",
+  "dna": "application/vnd.dna",
+  "mlp": "application/vnd.dolby.mlp",
+  "dpg": "application/vnd.dpgraph",
+  "dfac": "application/vnd.dreamfactory",
+  "kpxx": "application/vnd.ds-keypoint",
+  "ait": "application/vnd.dvb.ait",
+  "svc": "application/vnd.dvb.service",
+  "geo": "application/vnd.dynageo",
+  "mag": "application/vnd.ecowin.chart",
+  "nml": "application/vnd.enliven",
+  "esf": "application/vnd.epson.esf",
+  "msf": "application/vnd.epson.msf",
+  "qam": "application/vnd.epson.quickanime",
+  "slt": "application/vnd.epson.salt",
+  "ssf": "application/vnd.epson.ssf",
+  "es3": "application/vnd.eszigno3+xml",
+  "et3": "application/vnd.eszigno3+xml",
+  "ez2": "application/vnd.ezpix-album",
+  "ez3": "application/vnd.ezpix-package",
+  "fdf": "application/vnd.fdf",
+  "mseed": "application/vnd.fdsn.mseed",
+  "seed": "application/vnd.fdsn.seed",
+  "dataless": "application/vnd.fdsn.seed",
+  "gph": "application/vnd.flographit",
+  "ftc": "application/vnd.fluxtime.clip",
+  "fm": "application/vnd.framemaker",
+  "frame": "application/vnd.framemaker",
+  "maker": "application/vnd.framemaker",
+  "book": "application/vnd.framemaker",
+  "fnc": "application/vnd.frogans.fnc",
+  "ltf": "application/vnd.frogans.ltf",
+  "fsc": "application/vnd.fsc.weblaunch",
+  "oas": "application/vnd.fujitsu.oasys",
+  "oa2": "application/vnd.fujitsu.oasys2",
+  "oa3": "application/vnd.fujitsu.oasys3",
+  "fg5": "application/vnd.fujitsu.oasysgp",
+  "bh2": "application/vnd.fujitsu.oasysprs",
+  "ddd": "application/vnd.fujixerox.ddd",
+  "xdw": "application/vnd.fujixerox.docuworks",
+  "xbd": "application/vnd.fujixerox.docuworks.binder",
+  "fzs": "application/vnd.fuzzysheet",
+  "txd": "application/vnd.genomatix.tuxedo",
+  "ggb": "application/vnd.geogebra.file",
+  "ggt": "application/vnd.geogebra.tool",
+  "gex": "application/vnd.geometry-explorer",
+  "gre": "application/vnd.geometry-explorer",
+  "gxt": "application/vnd.geonext",
+  "g2w": "application/vnd.geoplan",
+  "g3w": "application/vnd.geospace",
+  "gmx": "application/vnd.gmx",
+  "kml": "application/vnd.google-earth.kml+xml",
+  "kmz": "application/vnd.google-earth.kmz",
+  "gqf": "application/vnd.grafeq",
+  "gqs": "application/vnd.grafeq",
+  "gac": "application/vnd.groove-account",
+  "ghf": "application/vnd.groove-help",
+  "gim": "application/vnd.groove-identity-message",
+  "grv": "application/vnd.groove-injector",
+  "gtm": "application/vnd.groove-tool-message",
+  "tpl": "application/vnd.groove-tool-template",
+  "vcg": "application/vnd.groove-vcard",
+  "hal": "application/vnd.hal+xml",
+  "zmm": "application/vnd.handheld-entertainment+xml",
+  "hbci": "application/vnd.hbci",
+  "les": "application/vnd.hhe.lesson-player",
+  "hpgl": "application/vnd.hp-hpgl",
+  "hpid": "application/vnd.hp-hpid",
+  "hps": "application/vnd.hp-hps",
+  "jlt": "application/vnd.hp-jlyt",
+  "pcl": "application/vnd.hp-pcl",
+  "pclxl": "application/vnd.hp-pclxl",
+  "sfd-hdstx": "application/vnd.hydrostatix.sof-data",
+  "mpy": "application/vnd.ibm.minipay",
+  "afp": "application/vnd.ibm.modcap",
+  "listafp": "application/vnd.ibm.modcap",
+  "list3820": "application/vnd.ibm.modcap",
+  "irm": "application/vnd.ibm.rights-management",
+  "sc": "application/vnd.ibm.secure-container",
+  "icc": "application/vnd.iccprofile",
+  "icm": "application/vnd.iccprofile",
+  "igl": "application/vnd.igloader",
+  "ivp": "application/vnd.immervision-ivp",
+  "ivu": "application/vnd.immervision-ivu",
+  "igm": "application/vnd.insors.igm",
+  "xpw": "application/vnd.intercon.formnet",
+  "xpx": "application/vnd.intercon.formnet",
+  "i2g": "application/vnd.intergeo",
+  "qbo": "application/vnd.intu.qbo",
+  "qfx": "application/vnd.intu.qfx",
+  "rcprofile": "application/vnd.ipunplugged.rcprofile",
+  "irp": "application/vnd.irepository.package+xml",
+  "xpr": "application/vnd.is-xpr",
+  "fcs": "application/vnd.isac.fcs",
+  "jam": "application/vnd.jam",
+  "rms": "application/vnd.jcp.javame.midlet-rms",
+  "jisp": "application/vnd.jisp",
+  "joda": "application/vnd.joost.joda-archive",
+  "ktz": "application/vnd.kahootz",
+  "ktr": "application/vnd.kahootz",
+  "karbon": "application/vnd.kde.karbon",
+  "chrt": "application/vnd.kde.kchart",
+  "kfo": "application/vnd.kde.kformula",
+  "flw": "application/vnd.kde.kivio",
+  "kon": "application/vnd.kde.kontour",
+  "kpr": "application/vnd.kde.kpresenter",
+  "kpt": "application/vnd.kde.kpresenter",
+  "ksp": "application/vnd.kde.kspread",
+  "kwd": "application/vnd.kde.kword",
+  "kwt": "application/vnd.kde.kword",
+  "htke": "application/vnd.kenameaapp",
+  "kia": "application/vnd.kidspiration",
+  "kne": "application/vnd.kinar",
+  "knp": "application/vnd.kinar",
+  "skp": "application/vnd.koan",
+  "skd": "application/vnd.koan",
+  "skt": "application/vnd.koan",
+  "skm": "application/vnd.koan",
+  "sse": "application/vnd.kodak-descriptor",
+  "lasxml": "application/vnd.las.las+xml",
+  "lbd": "application/vnd.llamagraphics.life-balance.desktop",
+  "lbe": "application/vnd.llamagraphics.life-balance.exchange+xml",
+  "apr": "application/vnd.lotus-approach",
+  "pre": "application/vnd.lotus-freelance",
+  "nsf": "application/vnd.lotus-notes",
+  "org": "application/vnd.lotus-organizer",
+  "scm": "application/vnd.lotus-screencam",
+  "lwp": "application/vnd.lotus-wordpro",
+  "portpkg": "application/vnd.macports.portpkg",
+  "mcd": "application/vnd.mcd",
+  "mc1": "application/vnd.medcalcdata",
+  "cdkey": "application/vnd.mediastation.cdkey",
+  "mwf": "application/vnd.mfer",
+  "mfm": "application/vnd.mfmp",
+  "flo": "application/vnd.micrografx.flo",
+  "igx": "application/vnd.micrografx.igx",
+  "mif": "application/vnd.mif",
+  "daf": "application/vnd.mobius.daf",
+  "dis": "application/vnd.mobius.dis",
+  "mbk": "application/vnd.mobius.mbk",
+  "mqy": "application/vnd.mobius.mqy",
+  "msl": "application/vnd.mobius.msl",
+  "plc": "application/vnd.mobius.plc",
+  "txf": "application/vnd.mobius.txf",
+  "mpn": "application/vnd.mophun.application",
+  "mpc": "application/vnd.mophun.certificate",
+  "xul": "application/vnd.mozilla.xul+xml",
+  "cil": "application/vnd.ms-artgalry",
+  "cab": "application/vnd.ms-cab-compressed",
+  "xls": "application/vnd.ms-excel",
+  "xlm": "application/vnd.ms-excel",
+  "xla": "application/vnd.ms-excel",
+  "xlc": "application/vnd.ms-excel",
+  "xlt": "application/vnd.ms-excel",
+  "xlw": "application/vnd.ms-excel",
+  "xlam": "application/vnd.ms-excel.addin.macroenabled.12",
+  "xlsb": "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+  "xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+  "xltm": "application/vnd.ms-excel.template.macroenabled.12",
+  "eot": "application/vnd.ms-fontobject",
+  "chm": "application/vnd.ms-htmlhelp",
+  "ims": "application/vnd.ms-ims",
+  "lrm": "application/vnd.ms-lrm",
+  "thmx": "application/vnd.ms-officetheme",
+  "cat": "application/vnd.ms-pki.seccat",
+  "stl": "application/vnd.ms-pki.stl",
+  "ppt": "application/vnd.ms-powerpoint",
+  "pps": "application/vnd.ms-powerpoint",
+  "pot": "application/vnd.ms-powerpoint",
+  "ppam": "application/vnd.ms-powerpoint.addin.macroenabled.12",
+  "pptm": "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+  "sldm": "application/vnd.ms-powerpoint.slide.macroenabled.12",
+  "ppsm": "application/vnd.ms-powerpoint.slideshow.macroenabled.12",
+  "potm": "application/vnd.ms-powerpoint.template.macroenabled.12",
+  "mpp": "application/vnd.ms-project",
+  "mpt": "application/vnd.ms-project",
+  "docm": "application/vnd.ms-word.document.macroenabled.12",
+  "dotm": "application/vnd.ms-word.template.macroenabled.12",
+  "wps": "application/vnd.ms-works",
+  "wks": "application/vnd.ms-works",
+  "wcm": "application/vnd.ms-works",
+  "wdb": "application/vnd.ms-works",
+  "wpl": "application/vnd.ms-wpl",
+  "xps": "application/vnd.ms-xpsdocument",
+  "mseq": "application/vnd.mseq",
+  "mus": "application/vnd.musician",
+  "msty": "application/vnd.muvee.style",
+  "taglet": "application/vnd.mynfc",
+  "nlu": "application/vnd.neurolanguage.nlu",
+  "ntf": "application/vnd.nitf",
+  "nitf": "application/vnd.nitf",
+  "nnd": "application/vnd.noblenet-directory",
+  "nns": "application/vnd.noblenet-sealer",
+  "nnw": "application/vnd.noblenet-web",
+  "ngdat": "application/vnd.nokia.n-gage.data",
+  "n-gage": "application/vnd.nokia.n-gage.symbian.install",
+  "rpst": "application/vnd.nokia.radio-preset",
+  "rpss": "application/vnd.nokia.radio-presets",
+  "edm": "application/vnd.novadigm.edm",
+  "edx": "application/vnd.novadigm.edx",
+  "ext": "application/vnd.novadigm.ext",
+  "odc": "application/vnd.oasis.opendocument.chart",
+  "otc": "application/vnd.oasis.opendocument.chart-template",
+  "odb": "application/vnd.oasis.opendocument.database",
+  "odf": "application/vnd.oasis.opendocument.formula",
+  "odft": "application/vnd.oasis.opendocument.formula-template",
+  "odg": "application/vnd.oasis.opendocument.graphics",
+  "otg": "application/vnd.oasis.opendocument.graphics-template",
+  "odi": "application/vnd.oasis.opendocument.image",
+  "oti": "application/vnd.oasis.opendocument.image-template",
+  "odp": "application/vnd.oasis.opendocument.presentation",
+  "otp": "application/vnd.oasis.opendocument.presentation-template",
+  "ods": "application/vnd.oasis.opendocument.spreadsheet",
+  "ots": "application/vnd.oasis.opendocument.spreadsheet-template",
+  "odt": "application/vnd.oasis.opendocument.text",
+  "odm": "application/vnd.oasis.opendocument.text-master",
+  "ott": "application/vnd.oasis.opendocument.text-template",
+  "oth": "application/vnd.oasis.opendocument.text-web",
+  "xo": "application/vnd.olpc-sugar",
+  "dd2": "application/vnd.oma.dd2+xml",
+  "oxt": "application/vnd.openofficeorg.extension",
+  "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "sldx": "application/vnd.openxmlformats-officedocument.presentationml.slide",
+  "ppsx": "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+  "potx": "application/vnd.openxmlformats-officedocument.presentationml.template",
+  "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+  "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+  "mgp": "application/vnd.osgeo.mapguide.package",
+  "dp": "application/vnd.osgi.dp",
+  "esa": "application/vnd.osgi.subsystem",
+  "pdb": "application/vnd.palm",
+  "pqa": "application/vnd.palm",
+  "oprc": "application/vnd.palm",
+  "paw": "application/vnd.pawaafile",
+  "str": "application/vnd.pg.format",
+  "ei6": "application/vnd.pg.osasli",
+  "efif": "application/vnd.picsel",
+  "wg": "application/vnd.pmi.widget",
+  "plf": "application/vnd.pocketlearn",
+  "pbd": "application/vnd.powerbuilder6",
+  "box": "application/vnd.previewsystems.box",
+  "mgz": "application/vnd.proteus.magazine",
+  "qps": "application/vnd.publishare-delta-tree",
+  "ptid": "application/vnd.pvi.ptid1",
+  "qxd": "application/vnd.quark.quarkxpress",
+  "qxt": "application/vnd.quark.quarkxpress",
+  "qwd": "application/vnd.quark.quarkxpress",
+  "qwt": "application/vnd.quark.quarkxpress",
+  "qxl": "application/vnd.quark.quarkxpress",
+  "qxb": "application/vnd.quark.quarkxpress",
+  "bed": "application/vnd.realvnc.bed",
+  "mxl": "application/vnd.recordare.musicxml",
+  "musicxml": "application/vnd.recordare.musicxml+xml",
+  "cryptonote": "application/vnd.rig.cryptonote",
+  "cod": "application/vnd.rim.cod",
+  "rm": "application/vnd.rn-realmedia",
+  "rmvb": "application/vnd.rn-realmedia-vbr",
+  "link66": "application/vnd.route66.link66+xml",
+  "st": "application/vnd.sailingtracker.track",
+  "see": "application/vnd.seemail",
+  "sema": "application/vnd.sema",
+  "semd": "application/vnd.semd",
+  "semf": "application/vnd.semf",
+  "ifm": "application/vnd.shana.informed.formdata",
+  "itp": "application/vnd.shana.informed.formtemplate",
+  "iif": "application/vnd.shana.informed.interchange",
+  "ipk": "application/vnd.shana.informed.package",
+  "twd": "application/vnd.simtech-mindmapper",
+  "twds": "application/vnd.simtech-mindmapper",
+  "mmf": "application/vnd.smaf",
+  "teacher": "application/vnd.smart.teacher",
+  "sdkm": "application/vnd.solent.sdkm+xml",
+  "sdkd": "application/vnd.solent.sdkm+xml",
+  "dxp": "application/vnd.spotfire.dxp",
+  "sfs": "application/vnd.spotfire.sfs",
+  "sdc": "application/vnd.stardivision.calc",
+  "sda": "application/vnd.stardivision.draw",
+  "sdd": "application/vnd.stardivision.impress",
+  "smf": "application/vnd.stardivision.math",
+  "sdw": "application/vnd.stardivision.writer",
+  "vor": "application/vnd.stardivision.writer",
+  "sgl": "application/vnd.stardivision.writer-global",
+  "smzip": "application/vnd.stepmania.package",
+  "sm": "application/vnd.stepmania.stepchart",
+  "sxc": "application/vnd.sun.xml.calc",
+  "stc": "application/vnd.sun.xml.calc.template",
+  "sxd": "application/vnd.sun.xml.draw",
+  "std": "application/vnd.sun.xml.draw.template",
+  "sxi": "application/vnd.sun.xml.impress",
+  "sti": "application/vnd.sun.xml.impress.template",
+  "sxm": "application/vnd.sun.xml.math",
+  "sxw": "application/vnd.sun.xml.writer",
+  "sxg": "application/vnd.sun.xml.writer.global",
+  "stw": "application/vnd.sun.xml.writer.template",
+  "sus": "application/vnd.sus-calendar",
+  "susp": "application/vnd.sus-calendar",
+  "svd": "application/vnd.svd",
+  "sis": "application/vnd.symbian.install",
+  "sisx": "application/vnd.symbian.install",
+  "xsm": "application/vnd.syncml+xml",
+  "bdm": "application/vnd.syncml.dm+wbxml",
+  "xdm": "application/vnd.syncml.dm+xml",
+  "tao": "application/vnd.tao.intent-module-archive",
+  "pcap": "application/vnd.tcpdump.pcap",
+  "cap": "application/vnd.tcpdump.pcap",
+  "dmp": "application/vnd.tcpdump.pcap",
+  "tmo": "application/vnd.tmobile-livetv",
+  "tpt": "application/vnd.trid.tpt",
+  "mxs": "application/vnd.triscape.mxs",
+  "tra": "application/vnd.trueapp",
+  "ufd": "application/vnd.ufdl",
+  "ufdl": "application/vnd.ufdl",
+  "utz": "application/vnd.uiq.theme",
+  "umj": "application/vnd.umajin",
+  "unityweb": "application/vnd.unity",
+  "uoml": "application/vnd.uoml+xml",
+  "vcx": "application/vnd.vcx",
+  "vsd": "application/vnd.visio",
+  "vst": "application/vnd.visio",
+  "vss": "application/vnd.visio",
+  "vsw": "application/vnd.visio",
+  "vis": "application/vnd.visionary",
+  "vsf": "application/vnd.vsf",
+  "wbxml": "application/vnd.wap.wbxml",
+  "wmlc": "application/vnd.wap.wmlc",
+  "wmlsc": "application/vnd.wap.wmlscriptc",
+  "wtb": "application/vnd.webturbo",
+  "nbp": "application/vnd.wolfram.player",
+  "wpd": "application/vnd.wordperfect",
+  "wqd": "application/vnd.wqd",
+  "stf": "application/vnd.wt.stf",
+  "xar": "application/vnd.xara",
+  "xfdl": "application/vnd.xfdl",
+  "hvd": "application/vnd.yamaha.hv-dic",
+  "hvs": "application/vnd.yamaha.hv-script",
+  "hvp": "application/vnd.yamaha.hv-voice",
+  "osf": "application/vnd.yamaha.openscoreformat",
+  "osfpvg": "application/vnd.yamaha.openscoreformat.osfpvg+xml",
+  "saf": "application/vnd.yamaha.smaf-audio",
+  "spf": "application/vnd.yamaha.smaf-phrase",
+  "cmp": "application/vnd.yellowriver-custom-menu",
+  "zir": "application/vnd.zul",
+  "zirz": "application/vnd.zul",
+  "zaz": "application/vnd.zzazz.deck+xml",
+  "vxml": "application/voicexml+xml",
+  "wgt": "application/widget",
+  "hlp": "application/winhlp",
+  "wsdl": "application/wsdl+xml",
+  "wspolicy": "application/wspolicy+xml",
+  "7z": "application/x-7z-compressed",
+  "abw": "application/x-abiword",
+  "ace": "application/x-ace-compressed",
+  "dmg": "application/x-apple-diskimage",
+  "aab": "application/x-authorware-bin",
+  "x32": "application/x-authorware-bin",
+  "u32": "application/x-authorware-bin",
+  "vox": "application/x-authorware-bin",
+  "aam": "application/x-authorware-map",
+  "aas": "application/x-authorware-seg",
+  "bcpio": "application/x-bcpio",
+  "torrent": "application/x-bittorrent",
+  "blb": "application/x-blorb",
+  "blorb": "application/x-blorb",
+  "bz": "application/x-bzip",
+  "bz2": "application/x-bzip2",
+  "boz": "application/x-bzip2",
+  "cbr": "application/x-cbr",
+  "cba": "application/x-cbr",
+  "cbt": "application/x-cbr",
+  "cbz": "application/x-cbr",
+  "cb7": "application/x-cbr",
+  "vcd": "application/x-cdlink",
+  "cfs": "application/x-cfs-compressed",
+  "chat": "application/x-chat",
+  "pgn": "application/x-chess-pgn",
+  "nsc": "application/x-conference",
+  "cpio": "application/x-cpio",
+  "csh": "application/x-csh",
+  "deb": "application/x-debian-package",
+  "udeb": "application/x-debian-package",
+  "dgc": "application/x-dgc-compressed",
+  "dir": "application/x-director",
+  "dcr": "application/x-director",
+  "dxr": "application/x-director",
+  "cst": "application/x-director",
+  "cct": "application/x-director",
+  "cxt": "application/x-director",
+  "w3d": "application/x-director",
+  "fgd": "application/x-director",
+  "swa": "application/x-director",
+  "wad": "application/x-doom",
+  "ncx": "application/x-dtbncx+xml",
+  "dtb": "application/x-dtbook+xml",
+  "res": "application/x-dtbresource+xml",
+  "dvi": "application/x-dvi",
+  "evy": "application/x-envoy",
+  "eva": "application/x-eva",
+  "bdf": "application/x-font-bdf",
+  "gsf": "application/x-font-ghostscript",
+  "psf": "application/x-font-linux-psf",
+  "otf": "application/x-font-otf",
+  "pcf": "application/x-font-pcf",
+  "snf": "application/x-font-snf",
+  "ttf": "application/x-font-ttf",
+  "ttc": "application/x-font-ttf",
+  "pfa": "application/x-font-type1",
+  "pfb": "application/x-font-type1",
+  "pfm": "application/x-font-type1",
+  "afm": "application/x-font-type1",
+  "woff": "application/x-font-woff",
+  "arc": "application/x-freearc",
+  "spl": "application/x-futuresplash",
+  "gca": "application/x-gca-compressed",
+  "ulx": "application/x-glulx",
+  "gnumeric": "application/x-gnumeric",
+  "gramps": "application/x-gramps-xml",
+  "gtar": "application/x-gtar",
+  "hdf": "application/x-hdf",
+  "install": "application/x-install-instructions",
+  "iso": "application/x-iso9660-image",
+  "jnlp": "application/x-java-jnlp-file",
+  "latex": "application/x-latex",
+  "lzh": "application/x-lzh-compressed",
+  "lha": "application/x-lzh-compressed",
+  "mie": "application/x-mie",
+  "prc": "application/x-mobipocket-ebook",
+  "mobi": "application/x-mobipocket-ebook",
+  "application": "application/x-ms-application",
+  "lnk": "application/x-ms-shortcut",
+  "wmd": "application/x-ms-wmd",
+  "wmz": "application/x-msmetafile",
+  "xbap": "application/x-ms-xbap",
+  "mdb": "application/x-msaccess",
+  "obd": "application/x-msbinder",
+  "crd": "application/x-mscardfile",
+  "clp": "application/x-msclip",
+  "exe": "application/x-msdownload",
+  "dll": "application/x-msdownload",
+  "com": "application/x-msdownload",
+  "bat": "application/x-msdownload",
+  "msi": "application/x-msdownload",
+  "mvb": "application/x-msmediaview",
+  "m13": "application/x-msmediaview",
+  "m14": "application/x-msmediaview",
+  "wmf": "application/x-msmetafile",
+  "emf": "application/x-msmetafile",
+  "emz": "application/x-msmetafile",
+  "mny": "application/x-msmoney",
+  "pub": "application/x-mspublisher",
+  "scd": "application/x-msschedule",
+  "trm": "application/x-msterminal",
+  "wri": "application/x-mswrite",
+  "nc": "application/x-netcdf",
+  "cdf": "application/x-netcdf",
+  "nzb": "application/x-nzb",
+  "p12": "application/x-pkcs12",
+  "pfx": "application/x-pkcs12",
+  "p7b": "application/x-pkcs7-certificates",
+  "spc": "application/x-pkcs7-certificates",
+  "p7r": "application/x-pkcs7-certreqresp",
+  "rar": "application/x-rar-compressed",
+  "ris": "application/x-research-info-systems",
+  "sh": "application/x-sh",
+  "shar": "application/x-shar",
+  "swf": "application/x-shockwave-flash",
+  "xap": "application/x-silverlight-app",
+  "sql": "application/x-sql",
+  "sit": "application/x-stuffit",
+  "sitx": "application/x-stuffitx",
+  "srt": "application/x-subrip",
+  "sv4cpio": "application/x-sv4cpio",
+  "sv4crc": "application/x-sv4crc",
+  "t3": "application/x-t3vm-image",
+  "gam": "application/x-tads",
+  "tar": "application/x-tar",
+  "tcl": "application/x-tcl",
+  "tex": "application/x-tex",
+  "tfm": "application/x-tex-tfm",
+  "texinfo": "application/x-texinfo",
+  "texi": "application/x-texinfo",
+  "obj": "application/x-tgif",
+  "ustar": "application/x-ustar",
+  "src": "application/x-wais-source",
+  "der": "application/x-x509-ca-cert",
+  "crt": "application/x-x509-ca-cert",
+  "fig": "application/x-xfig",
+  "xlf": "application/x-xliff+xml",
+  "xpi": "application/x-xpinstall",
+  "xz": "application/x-xz",
+  "z1": "application/x-zmachine",
+  "z2": "application/x-zmachine",
+  "z3": "application/x-zmachine",
+  "z4": "application/x-zmachine",
+  "z5": "application/x-zmachine",
+  "z6": "application/x-zmachine",
+  "z7": "application/x-zmachine",
+  "z8": "application/x-zmachine",
+  "xaml": "application/xaml+xml",
+  "xdf": "application/xcap-diff+xml",
+  "xenc": "application/xenc+xml",
+  "xhtml": "application/xhtml+xml",
+  "xht": "application/xhtml+xml",
+  "xml": "application/xml",
+  "xsl": "application/xml",
+  "dtd": "application/xml-dtd",
+  "xop": "application/xop+xml",
+  "xpl": "application/xproc+xml",
+  "xslt": "application/xslt+xml",
+  "xspf": "application/xspf+xml",
+  "mxml": "application/xv+xml",
+  "xhvml": "application/xv+xml",
+  "xvml": "application/xv+xml",
+  "xvm": "application/xv+xml",
+  "yang": "application/yang",
+  "yin": "application/yin+xml",
+  "zip": "application/zip",
+  "adp": "audio/adpcm",
+  "au": "audio/basic",
+  "snd": "audio/basic",
+  "mid": "audio/midi",
+  "midi": "audio/midi",
+  "kar": "audio/midi",
+  "rmi": "audio/midi",
+  "mp4a": "audio/mp4",
+  "mpga": "audio/mpeg",
+  "mp2": "audio/mpeg",
+  "mp2a": "audio/mpeg",
+  "mp3": "audio/mpeg",
+  "m2a": "audio/mpeg",
+  "m3a": "audio/mpeg",
+  "oga": "audio/ogg",
+  "ogg": "audio/ogg",
+  "spx": "audio/ogg",
+  "s3m": "audio/s3m",
+  "sil": "audio/silk",
+  "uva": "audio/vnd.dece.audio",
+  "uvva": "audio/vnd.dece.audio",
+  "eol": "audio/vnd.digital-winds",
+  "dra": "audio/vnd.dra",
+  "dts": "audio/vnd.dts",
+  "dtshd": "audio/vnd.dts.hd",
+  "lvp": "audio/vnd.lucent.voice",
+  "pya": "audio/vnd.ms-playready.media.pya",
+  "ecelp4800": "audio/vnd.nuera.ecelp4800",
+  "ecelp7470": "audio/vnd.nuera.ecelp7470",
+  "ecelp9600": "audio/vnd.nuera.ecelp9600",
+  "rip": "audio/vnd.rip",
+  "weba": "audio/webm",
+  "aac": "audio/x-aac",
+  "aif": "audio/x-aiff",
+  "aiff": "audio/x-aiff",
+  "aifc": "audio/x-aiff",
+  "caf": "audio/x-caf",
+  "flac": "audio/x-flac",
+  "mka": "audio/x-matroska",
+  "m3u": "audio/x-mpegurl",
+  "wax": "audio/x-ms-wax",
+  "wma": "audio/x-ms-wma",
+  "ram": "audio/x-pn-realaudio",
+  "ra": "audio/x-pn-realaudio",
+  "rmp": "audio/x-pn-realaudio-plugin",
+  "wav": "audio/x-wav",
+  "xm": "audio/xm",
+  "cdx": "chemical/x-cdx",
+  "cif": "chemical/x-cif",
+  "cmdf": "chemical/x-cmdf",
+  "cml": "chemical/x-cml",
+  "csml": "chemical/x-csml",
+  "xyz": "chemical/x-xyz",
+  "bmp": "image/bmp",
+  "cgm": "image/cgm",
+  "g3": "image/g3fax",
+  "gif": "image/gif",
+  "ief": "image/ief",
+  "jpeg": "image/jpeg",
+  "jpg": "image/jpeg",
+  "jpe": "image/jpeg",
+  "ktx": "image/ktx",
+  "png": "image/png",
+  "btif": "image/prs.btif",
+  "sgi": "image/sgi",
+  "svg": "image/svg+xml",
+  "svgz": "image/svg+xml",
+  "tiff": "image/tiff",
+  "tif": "image/tiff",
+  "psd": "image/vnd.adobe.photoshop",
+  "uvi": "image/vnd.dece.graphic",
+  "uvvi": "image/vnd.dece.graphic",
+  "uvg": "image/vnd.dece.graphic",
+  "uvvg": "image/vnd.dece.graphic",
+  "sub": "text/vnd.dvb.subtitle",
+  "djvu": "image/vnd.djvu",
+  "djv": "image/vnd.djvu",
+  "dwg": "image/vnd.dwg",
+  "dxf": "image/vnd.dxf",
+  "fbs": "image/vnd.fastbidsheet",
+  "fpx": "image/vnd.fpx",
+  "fst": "image/vnd.fst",
+  "mmr": "image/vnd.fujixerox.edmics-mmr",
+  "rlc": "image/vnd.fujixerox.edmics-rlc",
+  "mdi": "image/vnd.ms-modi",
+  "wdp": "image/vnd.ms-photo",
+  "npx": "image/vnd.net-fpx",
+  "wbmp": "image/vnd.wap.wbmp",
+  "xif": "image/vnd.xiff",
+  "webp": "image/webp",
+  "3ds": "image/x-3ds",
+  "ras": "image/x-cmu-raster",
+  "cmx": "image/x-cmx",
+  "fh": "image/x-freehand",
+  "fhc": "image/x-freehand",
+  "fh4": "image/x-freehand",
+  "fh5": "image/x-freehand",
+  "fh7": "image/x-freehand",
+  "ico": "image/x-icon",
+  "sid": "image/x-mrsid-image",
+  "pcx": "image/x-pcx",
+  "pic": "image/x-pict",
+  "pct": "image/x-pict",
+  "pnm": "image/x-portable-anymap",
+  "pbm": "image/x-portable-bitmap",
+  "pgm": "image/x-portable-graymap",
+  "ppm": "image/x-portable-pixmap",
+  "rgb": "image/x-rgb",
+  "tga": "image/x-tga",
+  "xbm": "image/x-xbitmap",
+  "xpm": "image/x-xpixmap",
+  "xwd": "image/x-xwindowdump",
+  "eml": "message/rfc822",
+  "mime": "message/rfc822",
+  "igs": "model/iges",
+  "iges": "model/iges",
+  "msh": "model/mesh",
+  "mesh": "model/mesh",
+  "silo": "model/mesh",
+  "dae": "model/vnd.collada+xml",
+  "dwf": "model/vnd.dwf",
+  "gdl": "model/vnd.gdl",
+  "gtw": "model/vnd.gtw",
+  "mts": "model/vnd.mts",
+  "vtu": "model/vnd.vtu",
+  "wrl": "model/vrml",
+  "vrml": "model/vrml",
+  "x3db": "model/x3d+binary",
+  "x3dbz": "model/x3d+binary",
+  "x3dv": "model/x3d+vrml",
+  "x3dvz": "model/x3d+vrml",
+  "x3d": "model/x3d+xml",
+  "x3dz": "model/x3d+xml",
+  "appcache": "text/cache-manifest",
+  "ics": "text/calendar",
+  "ifb": "text/calendar",
+  "css": "text/css",
+  "csv": "text/csv",
+  "html": "text/html",
+  "htm": "text/html",
+  "n3": "text/n3",
+  "txt": "text/plain",
+  "text": "text/plain",
+  "conf": "text/plain",
+  "def": "text/plain",
+  "list": "text/plain",
+  "log": "text/plain",
+  "in": "text/plain",
+  "dsc": "text/prs.lines.tag",
+  "rtx": "text/richtext",
+  "sgml": "text/sgml",
+  "sgm": "text/sgml",
+  "tsv": "text/tab-separated-values",
+  "t": "text/troff",
+  "tr": "text/troff",
+  "roff": "text/troff",
+  "man": "text/troff",
+  "me": "text/troff",
+  "ms": "text/troff",
+  "ttl": "text/turtle",
+  "uri": "text/uri-list",
+  "uris": "text/uri-list",
+  "urls": "text/uri-list",
+  "vcard": "text/vcard",
+  "curl": "text/vnd.curl",
+  "dcurl": "text/vnd.curl.dcurl",
+  "scurl": "text/vnd.curl.scurl",
+  "mcurl": "text/vnd.curl.mcurl",
+  "fly": "text/vnd.fly",
+  "flx": "text/vnd.fmi.flexstor",
+  "gv": "text/vnd.graphviz",
+  "3dml": "text/vnd.in3d.3dml",
+  "spot": "text/vnd.in3d.spot",
+  "jad": "text/vnd.sun.j2me.app-descriptor",
+  "wml": "text/vnd.wap.wml",
+  "wmls": "text/vnd.wap.wmlscript",
+  "s": "text/x-asm",
+  "asm": "text/x-asm",
+  "c": "text/x-c",
+  "cc": "text/x-c",
+  "cxx": "text/x-c",
+  "cpp": "text/x-c",
+  "h": "text/x-c",
+  "hh": "text/x-c",
+  "dic": "text/x-c",
+  "f": "text/x-fortran",
+  "for": "text/x-fortran",
+  "f77": "text/x-fortran",
+  "f90": "text/x-fortran",
+  "java": "text/x-java-source",
+  "opml": "text/x-opml",
+  "p": "text/x-pascal",
+  "pas": "text/x-pascal",
+  "nfo": "text/x-nfo",
+  "etx": "text/x-setext",
+  "sfv": "text/x-sfv",
+  "uu": "text/x-uuencode",
+  "vcs": "text/x-vcalendar",
+  "vcf": "text/x-vcard",
+  "3gp": "video/3gpp",
+  "3g2": "video/3gpp2",
+  "h261": "video/h261",
+  "h263": "video/h263",
+  "h264": "video/h264",
+  "jpgv": "video/jpeg",
+  "jpm": "video/jpm",
+  "jpgm": "video/jpm",
+  "mj2": "video/mj2",
+  "mjp2": "video/mj2",
+  "mp4": "video/mp4",
+  "mp4v": "video/mp4",
+  "mpg4": "video/mp4",
+  "mpeg": "video/mpeg",
+  "mpg": "video/mpeg",
+  "mpe": "video/mpeg",
+  "m1v": "video/mpeg",
+  "m2v": "video/mpeg",
+  "ogv": "video/ogg",
+  "qt": "video/quicktime",
+  "mov": "video/quicktime",
+  "uvh": "video/vnd.dece.hd",
+  "uvvh": "video/vnd.dece.hd",
+  "uvm": "video/vnd.dece.mobile",
+  "uvvm": "video/vnd.dece.mobile",
+  "uvp": "video/vnd.dece.pd",
+  "uvvp": "video/vnd.dece.pd",
+  "uvs": "video/vnd.dece.sd",
+  "uvvs": "video/vnd.dece.sd",
+  "uvv": "video/vnd.dece.video",
+  "uvvv": "video/vnd.dece.video",
+  "dvb": "video/vnd.dvb.file",
+  "fvt": "video/vnd.fvt",
+  "mxu": "video/vnd.mpegurl",
+  "m4u": "video/vnd.mpegurl",
+  "pyv": "video/vnd.ms-playready.media.pyv",
+  "uvu": "video/vnd.uvvu.mp4",
+  "uvvu": "video/vnd.uvvu.mp4",
+  "viv": "video/vnd.vivo",
+  "webm": "video/webm",
+  "f4v": "video/x-f4v",
+  "fli": "video/x-fli",
+  "flv": "video/x-flv",
+  "m4v": "video/x-m4v",
+  "mkv": "video/x-matroska",
+  "mk3d": "video/x-matroska",
+  "mks": "video/x-matroska",
+  "mng": "video/x-mng",
+  "asf": "video/x-ms-asf",
+  "asx": "video/x-ms-asf",
+  "vob": "video/x-ms-vob",
+  "wm": "video/x-ms-wm",
+  "wmv": "video/x-ms-wmv",
+  "wmx": "video/x-ms-wmx",
+  "wvx": "video/x-ms-wvx",
+  "avi": "video/x-msvideo",
+  "movie": "video/x-sgi-movie",
+  "smv": "video/x-smv",
+  "ice": "x-conference/x-cooltalk",
+  "vtt": "text/vtt",
+  "crx": "application/x-chrome-extension",
+  "htc": "text/x-component",
+  "manifest": "text/cache-manifest",
+  "buffer": "application/octet-stream",
+  "m4p": "application/mp4",
+  "m4a": "audio/mp4",
+  "ts": "video/MP2T",
+  "event-stream": "text/event-stream",
+  "webapp": "application/x-web-app-manifest+json",
+  "lua": "text/x-lua",
+  "luac": "application/x-lua-bytecode",
+  "markdown": "text/x-markdown",
+  "md": "text/x-markdown",
+  "mkd": "text/x-markdown"
+}
+  , extensions: {
+  "application/andrew-inset": "ez",
+  "application/applixware": "aw",
+  "application/atom+xml": "atom",
+  "application/atomcat+xml": "atomcat",
+  "application/atomsvc+xml": "atomsvc",
+  "application/ccxml+xml": "ccxml",
+  "application/cdmi-capability": "cdmia",
+  "application/cdmi-container": "cdmic",
+  "application/cdmi-domain": "cdmid",
+  "application/cdmi-object": "cdmio",
+  "application/cdmi-queue": "cdmiq",
+  "application/cu-seeme": "cu",
+  "application/davmount+xml": "davmount",
+  "application/docbook+xml": "dbk",
+  "application/dssc+der": "dssc",
+  "application/dssc+xml": "xdssc",
+  "application/ecmascript": "ecma",
+  "application/emma+xml": "emma",
+  "application/epub+zip": "epub",
+  "application/exi": "exi",
+  "application/font-tdpfr": "pfr",
+  "application/gml+xml": "gml",
+  "application/gpx+xml": "gpx",
+  "application/gxf": "gxf",
+  "application/hyperstudio": "stk",
+  "application/inkml+xml": "ink",
+  "application/ipfix": "ipfix",
+  "application/java-archive": "jar",
+  "application/java-serialized-object": "ser",
+  "application/java-vm": "class",
+  "application/javascript": "js",
+  "application/json": "json",
+  "application/jsonml+json": "jsonml",
+  "application/lost+xml": "lostxml",
+  "application/mac-binhex40": "hqx",
+  "application/mac-compactpro": "cpt",
+  "application/mads+xml": "mads",
+  "application/marc": "mrc",
+  "application/marcxml+xml": "mrcx",
+  "application/mathematica": "ma",
+  "application/mathml+xml": "mathml",
+  "application/mbox": "mbox",
+  "application/mediaservercontrol+xml": "mscml",
+  "application/metalink+xml": "metalink",
+  "application/metalink4+xml": "meta4",
+  "application/mets+xml": "mets",
+  "application/mods+xml": "mods",
+  "application/mp21": "m21",
+  "application/mp4": "mp4s",
+  "application/msword": "doc",
+  "application/mxf": "mxf",
+  "application/octet-stream": "bin",
+  "application/oda": "oda",
+  "application/oebps-package+xml": "opf",
+  "application/ogg": "ogx",
+  "application/omdoc+xml": "omdoc",
+  "application/onenote": "onetoc",
+  "application/oxps": "oxps",
+  "application/patch-ops-error+xml": "xer",
+  "application/pdf": "pdf",
+  "application/pgp-encrypted": "pgp",
+  "application/pgp-signature": "asc",
+  "application/pics-rules": "prf",
+  "application/pkcs10": "p10",
+  "application/pkcs7-mime": "p7m",
+  "application/pkcs7-signature": "p7s",
+  "application/pkcs8": "p8",
+  "application/pkix-attr-cert": "ac",
+  "application/pkix-cert": "cer",
+  "application/pkix-crl": "crl",
+  "application/pkix-pkipath": "pkipath",
+  "application/pkixcmp": "pki",
+  "application/pls+xml": "pls",
+  "application/postscript": "ai",
+  "application/prs.cww": "cww",
+  "application/pskc+xml": "pskcxml",
+  "application/rdf+xml": "rdf",
+  "application/reginfo+xml": "rif",
+  "application/relax-ng-compact-syntax": "rnc",
+  "application/resource-lists+xml": "rl",
+  "application/resource-lists-diff+xml": "rld",
+  "application/rls-services+xml": "rs",
+  "application/rpki-ghostbusters": "gbr",
+  "application/rpki-manifest": "mft",
+  "application/rpki-roa": "roa",
+  "application/rsd+xml": "rsd",
+  "application/rss+xml": "rss",
+  "application/rtf": "rtf",
+  "application/sbml+xml": "sbml",
+  "application/scvp-cv-request": "scq",
+  "application/scvp-cv-response": "scs",
+  "application/scvp-vp-request": "spq",
+  "application/scvp-vp-response": "spp",
+  "application/sdp": "sdp",
+  "application/set-payment-initiation": "setpay",
+  "application/set-registration-initiation": "setreg",
+  "application/shf+xml": "shf",
+  "application/smil+xml": "smi",
+  "application/sparql-query": "rq",
+  "application/sparql-results+xml": "srx",
+  "application/srgs": "gram",
+  "application/srgs+xml": "grxml",
+  "application/sru+xml": "sru",
+  "application/ssdl+xml": "ssdl",
+  "application/ssml+xml": "ssml",
+  "application/tei+xml": "tei",
+  "application/thraud+xml": "tfi",
+  "application/timestamped-data": "tsd",
+  "application/vnd.3gpp.pic-bw-large": "plb",
+  "application/vnd.3gpp.pic-bw-small": "psb",
+  "application/vnd.3gpp.pic-bw-var": "pvb",
+  "application/vnd.3gpp2.tcap": "tcap",
+  "application/vnd.3m.post-it-notes": "pwn",
+  "application/vnd.accpac.simply.aso": "aso",
+  "application/vnd.accpac.simply.imp": "imp",
+  "application/vnd.acucobol": "acu",
+  "application/vnd.acucorp": "atc",
+  "application/vnd.adobe.air-application-installer-package+zip": "air",
+  "application/vnd.adobe.formscentral.fcdt": "fcdt",
+  "application/vnd.adobe.fxp": "fxp",
+  "application/vnd.adobe.xdp+xml": "xdp",
+  "application/vnd.adobe.xfdf": "xfdf",
+  "application/vnd.ahead.space": "ahead",
+  "application/vnd.airzip.filesecure.azf": "azf",
+  "application/vnd.airzip.filesecure.azs": "azs",
+  "application/vnd.amazon.ebook": "azw",
+  "application/vnd.americandynamics.acc": "acc",
+  "application/vnd.amiga.ami": "ami",
+  "application/vnd.android.package-archive": "apk",
+  "application/vnd.anser-web-certificate-issue-initiation": "cii",
+  "application/vnd.anser-web-funds-transfer-initiation": "fti",
+  "application/vnd.antix.game-component": "atx",
+  "application/vnd.apple.installer+xml": "mpkg",
+  "application/vnd.apple.mpegurl": "m3u8",
+  "application/vnd.aristanetworks.swi": "swi",
+  "application/vnd.astraea-software.iota": "iota",
+  "application/vnd.audiograph": "aep",
+  "application/vnd.blueice.multipass": "mpm",
+  "application/vnd.bmi": "bmi",
+  "application/vnd.businessobjects": "rep",
+  "application/vnd.chemdraw+xml": "cdxml",
+  "application/vnd.chipnuts.karaoke-mmd": "mmd",
+  "application/vnd.cinderella": "cdy",
+  "application/vnd.claymore": "cla",
+  "application/vnd.cloanto.rp9": "rp9",
+  "application/vnd.clonk.c4group": "c4g",
+  "application/vnd.cluetrust.cartomobile-config": "c11amc",
+  "application/vnd.cluetrust.cartomobile-config-pkg": "c11amz",
+  "application/vnd.commonspace": "csp",
+  "application/vnd.contact.cmsg": "cdbcmsg",
+  "application/vnd.cosmocaller": "cmc",
+  "application/vnd.crick.clicker": "clkx",
+  "application/vnd.crick.clicker.keyboard": "clkk",
+  "application/vnd.crick.clicker.palette": "clkp",
+  "application/vnd.crick.clicker.template": "clkt",
+  "application/vnd.crick.clicker.wordbank": "clkw",
+  "application/vnd.criticaltools.wbs+xml": "wbs",
+  "application/vnd.ctc-posml": "pml",
+  "application/vnd.cups-ppd": "ppd",
+  "application/vnd.curl.car": "car",
+  "application/vnd.curl.pcurl": "pcurl",
+  "application/vnd.dart": "dart",
+  "application/vnd.data-vision.rdz": "rdz",
+  "application/vnd.dece.data": "uvf",
+  "application/vnd.dece.ttml+xml": "uvt",
+  "application/vnd.dece.unspecified": "uvx",
+  "application/vnd.dece.zip": "uvz",
+  "application/vnd.denovo.fcselayout-link": "fe_launch",
+  "application/vnd.dna": "dna",
+  "application/vnd.dolby.mlp": "mlp",
+  "application/vnd.dpgraph": "dpg",
+  "application/vnd.dreamfactory": "dfac",
+  "application/vnd.ds-keypoint": "kpxx",
+  "application/vnd.dvb.ait": "ait",
+  "application/vnd.dvb.service": "svc",
+  "application/vnd.dynageo": "geo",
+  "application/vnd.ecowin.chart": "mag",
+  "application/vnd.enliven": "nml",
+  "application/vnd.epson.esf": "esf",
+  "application/vnd.epson.msf": "msf",
+  "application/vnd.epson.quickanime": "qam",
+  "application/vnd.epson.salt": "slt",
+  "application/vnd.epson.ssf": "ssf",
+  "application/vnd.eszigno3+xml": "es3",
+  "application/vnd.ezpix-album": "ez2",
+  "application/vnd.ezpix-package": "ez3",
+  "application/vnd.fdf": "fdf",
+  "application/vnd.fdsn.mseed": "mseed",
+  "application/vnd.fdsn.seed": "seed",
+  "application/vnd.flographit": "gph",
+  "application/vnd.fluxtime.clip": "ftc",
+  "application/vnd.framemaker": "fm",
+  "application/vnd.frogans.fnc": "fnc",
+  "application/vnd.frogans.ltf": "ltf",
+  "application/vnd.fsc.weblaunch": "fsc",
+  "application/vnd.fujitsu.oasys": "oas",
+  "application/vnd.fujitsu.oasys2": "oa2",
+  "application/vnd.fujitsu.oasys3": "oa3",
+  "application/vnd.fujitsu.oasysgp": "fg5",
+  "application/vnd.fujitsu.oasysprs": "bh2",
+  "application/vnd.fujixerox.ddd": "ddd",
+  "application/vnd.fujixerox.docuworks": "xdw",
+  "application/vnd.fujixerox.docuworks.binder": "xbd",
+  "application/vnd.fuzzysheet": "fzs",
+  "application/vnd.genomatix.tuxedo": "txd",
+  "application/vnd.geogebra.file": "ggb",
+  "application/vnd.geogebra.tool": "ggt",
+  "application/vnd.geometry-explorer": "gex",
+  "application/vnd.geonext": "gxt",
+  "application/vnd.geoplan": "g2w",
+  "application/vnd.geospace": "g3w",
+  "application/vnd.gmx": "gmx",
+  "application/vnd.google-earth.kml+xml": "kml",
+  "application/vnd.google-earth.kmz": "kmz",
+  "application/vnd.grafeq": "gqf",
+  "application/vnd.groove-account": "gac",
+  "application/vnd.groove-help": "ghf",
+  "application/vnd.groove-identity-message": "gim",
+  "application/vnd.groove-injector": "grv",
+  "application/vnd.groove-tool-message": "gtm",
+  "application/vnd.groove-tool-template": "tpl",
+  "application/vnd.groove-vcard": "vcg",
+  "application/vnd.hal+xml": "hal",
+  "application/vnd.handheld-entertainment+xml": "zmm",
+  "application/vnd.hbci": "hbci",
+  "application/vnd.hhe.lesson-player": "les",
+  "application/vnd.hp-hpgl": "hpgl",
+  "application/vnd.hp-hpid": "hpid",
+  "application/vnd.hp-hps": "hps",
+  "application/vnd.hp-jlyt": "jlt",
+  "application/vnd.hp-pcl": "pcl",
+  "application/vnd.hp-pclxl": "pclxl",
+  "application/vnd.hydrostatix.sof-data": "sfd-hdstx",
+  "application/vnd.ibm.minipay": "mpy",
+  "application/vnd.ibm.modcap": "afp",
+  "application/vnd.ibm.rights-management": "irm",
+  "application/vnd.ibm.secure-container": "sc",
+  "application/vnd.iccprofile": "icc",
+  "application/vnd.igloader": "igl",
+  "application/vnd.immervision-ivp": "ivp",
+  "application/vnd.immervision-ivu": "ivu",
+  "application/vnd.insors.igm": "igm",
+  "application/vnd.intercon.formnet": "xpw",
+  "application/vnd.intergeo": "i2g",
+  "application/vnd.intu.qbo": "qbo",
+  "application/vnd.intu.qfx": "qfx",
+  "application/vnd.ipunplugged.rcprofile": "rcprofile",
+  "application/vnd.irepository.package+xml": "irp",
+  "application/vnd.is-xpr": "xpr",
+  "application/vnd.isac.fcs": "fcs",
+  "application/vnd.jam": "jam",
+  "application/vnd.jcp.javame.midlet-rms": "rms",
+  "application/vnd.jisp": "jisp",
+  "application/vnd.joost.joda-archive": "joda",
+  "application/vnd.kahootz": "ktz",
+  "application/vnd.kde.karbon": "karbon",
+  "application/vnd.kde.kchart": "chrt",
+  "application/vnd.kde.kformula": "kfo",
+  "application/vnd.kde.kivio": "flw",
+  "application/vnd.kde.kontour": "kon",
+  "application/vnd.kde.kpresenter": "kpr",
+  "application/vnd.kde.kspread": "ksp",
+  "application/vnd.kde.kword": "kwd",
+  "application/vnd.kenameaapp": "htke",
+  "application/vnd.kidspiration": "kia",
+  "application/vnd.kinar": "kne",
+  "application/vnd.koan": "skp",
+  "application/vnd.kodak-descriptor": "sse",
+  "application/vnd.las.las+xml": "lasxml",
+  "application/vnd.llamagraphics.life-balance.desktop": "lbd",
+  "application/vnd.llamagraphics.life-balance.exchange+xml": "lbe",
+  "application/vnd.lotus-1-2-3": "123",
+  "application/vnd.lotus-approach": "apr",
+  "application/vnd.lotus-freelance": "pre",
+  "application/vnd.lotus-notes": "nsf",
+  "application/vnd.lotus-organizer": "org",
+  "application/vnd.lotus-screencam": "scm",
+  "application/vnd.lotus-wordpro": "lwp",
+  "application/vnd.macports.portpkg": "portpkg",
+  "application/vnd.mcd": "mcd",
+  "application/vnd.medcalcdata": "mc1",
+  "application/vnd.mediastation.cdkey": "cdkey",
+  "application/vnd.mfer": "mwf",
+  "application/vnd.mfmp": "mfm",
+  "application/vnd.micrografx.flo": "flo",
+  "application/vnd.micrografx.igx": "igx",
+  "application/vnd.mif": "mif",
+  "application/vnd.mobius.daf": "daf",
+  "application/vnd.mobius.dis": "dis",
+  "application/vnd.mobius.mbk": "mbk",
+  "application/vnd.mobius.mqy": "mqy",
+  "application/vnd.mobius.msl": "msl",
+  "application/vnd.mobius.plc": "plc",
+  "application/vnd.mobius.txf": "txf",
+  "application/vnd.mophun.application": "mpn",
+  "application/vnd.mophun.certificate": "mpc",
+  "application/vnd.mozilla.xul+xml": "xul",
+  "application/vnd.ms-artgalry": "cil",
+  "application/vnd.ms-cab-compressed": "cab",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.ms-excel.addin.macroenabled.12": "xlam",
+  "application/vnd.ms-excel.sheet.binary.macroenabled.12": "xlsb",
+  "application/vnd.ms-excel.sheet.macroenabled.12": "xlsm",
+  "application/vnd.ms-excel.template.macroenabled.12": "xltm",
+  "application/vnd.ms-fontobject": "eot",
+  "application/vnd.ms-htmlhelp": "chm",
+  "application/vnd.ms-ims": "ims",
+  "application/vnd.ms-lrm": "lrm",
+  "application/vnd.ms-officetheme": "thmx",
+  "application/vnd.ms-pki.seccat": "cat",
+  "application/vnd.ms-pki.stl": "stl",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.ms-powerpoint.addin.macroenabled.12": "ppam",
+  "application/vnd.ms-powerpoint.presentation.macroenabled.12": "pptm",
+  "application/vnd.ms-powerpoint.slide.macroenabled.12": "sldm",
+  "application/vnd.ms-powerpoint.slideshow.macroenabled.12": "ppsm",
+  "application/vnd.ms-powerpoint.template.macroenabled.12": "potm",
+  "application/vnd.ms-project": "mpp",
+  "application/vnd.ms-word.document.macroenabled.12": "docm",
+  "application/vnd.ms-word.template.macroenabled.12": "dotm",
+  "application/vnd.ms-works": "wps",
+  "application/vnd.ms-wpl": "wpl",
+  "application/vnd.ms-xpsdocument": "xps",
+  "application/vnd.mseq": "mseq",
+  "application/vnd.musician": "mus",
+  "application/vnd.muvee.style": "msty",
+  "application/vnd.mynfc": "taglet",
+  "application/vnd.neurolanguage.nlu": "nlu",
+  "application/vnd.nitf": "ntf",
+  "application/vnd.noblenet-directory": "nnd",
+  "application/vnd.noblenet-sealer": "nns",
+  "application/vnd.noblenet-web": "nnw",
+  "application/vnd.nokia.n-gage.data": "ngdat",
+  "application/vnd.nokia.n-gage.symbian.install": "n-gage",
+  "application/vnd.nokia.radio-preset": "rpst",
+  "application/vnd.nokia.radio-presets": "rpss",
+  "application/vnd.novadigm.edm": "edm",
+  "application/vnd.novadigm.edx": "edx",
+  "application/vnd.novadigm.ext": "ext",
+  "application/vnd.oasis.opendocument.chart": "odc",
+  "application/vnd.oasis.opendocument.chart-template": "otc",
+  "application/vnd.oasis.opendocument.database": "odb",
+  "application/vnd.oasis.opendocument.formula": "odf",
+  "application/vnd.oasis.opendocument.formula-template": "odft",
+  "application/vnd.oasis.opendocument.graphics": "odg",
+  "application/vnd.oasis.opendocument.graphics-template": "otg",
+  "application/vnd.oasis.opendocument.image": "odi",
+  "application/vnd.oasis.opendocument.image-template": "oti",
+  "application/vnd.oasis.opendocument.presentation": "odp",
+  "application/vnd.oasis.opendocument.presentation-template": "otp",
+  "application/vnd.oasis.opendocument.spreadsheet": "ods",
+  "application/vnd.oasis.opendocument.spreadsheet-template": "ots",
+  "application/vnd.oasis.opendocument.text": "odt",
+  "application/vnd.oasis.opendocument.text-master": "odm",
+  "application/vnd.oasis.opendocument.text-template": "ott",
+  "application/vnd.oasis.opendocument.text-web": "oth",
+  "application/vnd.olpc-sugar": "xo",
+  "application/vnd.oma.dd2+xml": "dd2",
+  "application/vnd.openofficeorg.extension": "oxt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.openxmlformats-officedocument.presentationml.slide": "sldx",
+  "application/vnd.openxmlformats-officedocument.presentationml.slideshow": "ppsx",
+  "application/vnd.openxmlformats-officedocument.presentationml.template": "potx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.template": "xltx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.template": "dotx",
+  "application/vnd.osgeo.mapguide.package": "mgp",
+  "application/vnd.osgi.dp": "dp",
+  "application/vnd.osgi.subsystem": "esa",
+  "application/vnd.palm": "pdb",
+  "application/vnd.pawaafile": "paw",
+  "application/vnd.pg.format": "str",
+  "application/vnd.pg.osasli": "ei6",
+  "application/vnd.picsel": "efif",
+  "application/vnd.pmi.widget": "wg",
+  "application/vnd.pocketlearn": "plf",
+  "application/vnd.powerbuilder6": "pbd",
+  "application/vnd.previewsystems.box": "box",
+  "application/vnd.proteus.magazine": "mgz",
+  "application/vnd.publishare-delta-tree": "qps",
+  "application/vnd.pvi.ptid1": "ptid",
+  "application/vnd.quark.quarkxpress": "qxd",
+  "application/vnd.realvnc.bed": "bed",
+  "application/vnd.recordare.musicxml": "mxl",
+  "application/vnd.recordare.musicxml+xml": "musicxml",
+  "application/vnd.rig.cryptonote": "cryptonote",
+  "application/vnd.rim.cod": "cod",
+  "application/vnd.rn-realmedia": "rm",
+  "application/vnd.rn-realmedia-vbr": "rmvb",
+  "application/vnd.route66.link66+xml": "link66",
+  "application/vnd.sailingtracker.track": "st",
+  "application/vnd.seemail": "see",
+  "application/vnd.sema": "sema",
+  "application/vnd.semd": "semd",
+  "application/vnd.semf": "semf",
+  "application/vnd.shana.informed.formdata": "ifm",
+  "application/vnd.shana.informed.formtemplate": "itp",
+  "application/vnd.shana.informed.interchange": "iif",
+  "application/vnd.shana.informed.package": "ipk",
+  "application/vnd.simtech-mindmapper": "twd",
+  "application/vnd.smaf": "mmf",
+  "application/vnd.smart.teacher": "teacher",
+  "application/vnd.solent.sdkm+xml": "sdkm",
+  "application/vnd.spotfire.dxp": "dxp",
+  "application/vnd.spotfire.sfs": "sfs",
+  "application/vnd.stardivision.calc": "sdc",
+  "application/vnd.stardivision.draw": "sda",
+  "application/vnd.stardivision.impress": "sdd",
+  "application/vnd.stardivision.math": "smf",
+  "application/vnd.stardivision.writer": "sdw",
+  "application/vnd.stardivision.writer-global": "sgl",
+  "application/vnd.stepmania.package": "smzip",
+  "application/vnd.stepmania.stepchart": "sm",
+  "application/vnd.sun.xml.calc": "sxc",
+  "application/vnd.sun.xml.calc.template": "stc",
+  "application/vnd.sun.xml.draw": "sxd",
+  "application/vnd.sun.xml.draw.template": "std",
+  "application/vnd.sun.xml.impress": "sxi",
+  "application/vnd.sun.xml.impress.template": "sti",
+  "application/vnd.sun.xml.math": "sxm",
+  "application/vnd.sun.xml.writer": "sxw",
+  "application/vnd.sun.xml.writer.global": "sxg",
+  "application/vnd.sun.xml.writer.template": "stw",
+  "application/vnd.sus-calendar": "sus",
+  "application/vnd.svd": "svd",
+  "application/vnd.symbian.install": "sis",
+  "application/vnd.syncml+xml": "xsm",
+  "application/vnd.syncml.dm+wbxml": "bdm",
+  "application/vnd.syncml.dm+xml": "xdm",
+  "application/vnd.tao.intent-module-archive": "tao",
+  "application/vnd.tcpdump.pcap": "pcap",
+  "application/vnd.tmobile-livetv": "tmo",
+  "application/vnd.trid.tpt": "tpt",
+  "application/vnd.triscape.mxs": "mxs",
+  "application/vnd.trueapp": "tra",
+  "application/vnd.ufdl": "ufd",
+  "application/vnd.uiq.theme": "utz",
+  "application/vnd.umajin": "umj",
+  "application/vnd.unity": "unityweb",
+  "application/vnd.uoml+xml": "uoml",
+  "application/vnd.vcx": "vcx",
+  "application/vnd.visio": "vsd",
+  "application/vnd.visionary": "vis",
+  "application/vnd.vsf": "vsf",
+  "application/vnd.wap.wbxml": "wbxml",
+  "application/vnd.wap.wmlc": "wmlc",
+  "application/vnd.wap.wmlscriptc": "wmlsc",
+  "application/vnd.webturbo": "wtb",
+  "application/vnd.wolfram.player": "nbp",
+  "application/vnd.wordperfect": "wpd",
+  "application/vnd.wqd": "wqd",
+  "application/vnd.wt.stf": "stf",
+  "application/vnd.xara": "xar",
+  "application/vnd.xfdl": "xfdl",
+  "application/vnd.yamaha.hv-dic": "hvd",
+  "application/vnd.yamaha.hv-script": "hvs",
+  "application/vnd.yamaha.hv-voice": "hvp",
+  "application/vnd.yamaha.openscoreformat": "osf",
+  "application/vnd.yamaha.openscoreformat.osfpvg+xml": "osfpvg",
+  "application/vnd.yamaha.smaf-audio": "saf",
+  "application/vnd.yamaha.smaf-phrase": "spf",
+  "application/vnd.yellowriver-custom-menu": "cmp",
+  "application/vnd.zul": "zir",
+  "application/vnd.zzazz.deck+xml": "zaz",
+  "application/voicexml+xml": "vxml",
+  "application/widget": "wgt",
+  "application/winhlp": "hlp",
+  "application/wsdl+xml": "wsdl",
+  "application/wspolicy+xml": "wspolicy",
+  "application/x-7z-compressed": "7z",
+  "application/x-abiword": "abw",
+  "application/x-ace-compressed": "ace",
+  "application/x-apple-diskimage": "dmg",
+  "application/x-authorware-bin": "aab",
+  "application/x-authorware-map": "aam",
+  "application/x-authorware-seg": "aas",
+  "application/x-bcpio": "bcpio",
+  "application/x-bittorrent": "torrent",
+  "application/x-blorb": "blb",
+  "application/x-bzip": "bz",
+  "application/x-bzip2": "bz2",
+  "application/x-cbr": "cbr",
+  "application/x-cdlink": "vcd",
+  "application/x-cfs-compressed": "cfs",
+  "application/x-chat": "chat",
+  "application/x-chess-pgn": "pgn",
+  "application/x-conference": "nsc",
+  "application/x-cpio": "cpio",
+  "application/x-csh": "csh",
+  "application/x-debian-package": "deb",
+  "application/x-dgc-compressed": "dgc",
+  "application/x-director": "dir",
+  "application/x-doom": "wad",
+  "application/x-dtbncx+xml": "ncx",
+  "application/x-dtbook+xml": "dtb",
+  "application/x-dtbresource+xml": "res",
+  "application/x-dvi": "dvi",
+  "application/x-envoy": "evy",
+  "application/x-eva": "eva",
+  "application/x-font-bdf": "bdf",
+  "application/x-font-ghostscript": "gsf",
+  "application/x-font-linux-psf": "psf",
+  "application/x-font-otf": "otf",
+  "application/x-font-pcf": "pcf",
+  "application/x-font-snf": "snf",
+  "application/x-font-ttf": "ttf",
+  "application/x-font-type1": "pfa",
+  "application/x-font-woff": "woff",
+  "application/x-freearc": "arc",
+  "application/x-futuresplash": "spl",
+  "application/x-gca-compressed": "gca",
+  "application/x-glulx": "ulx",
+  "application/x-gnumeric": "gnumeric",
+  "application/x-gramps-xml": "gramps",
+  "application/x-gtar": "gtar",
+  "application/x-hdf": "hdf",
+  "application/x-install-instructions": "install",
+  "application/x-iso9660-image": "iso",
+  "application/x-java-jnlp-file": "jnlp",
+  "application/x-latex": "latex",
+  "application/x-lzh-compressed": "lzh",
+  "application/x-mie": "mie",
+  "application/x-mobipocket-ebook": "prc",
+  "application/x-ms-application": "application",
+  "application/x-ms-shortcut": "lnk",
+  "application/x-ms-wmd": "wmd",
+  "application/x-ms-wmz": "wmz",
+  "application/x-ms-xbap": "xbap",
+  "application/x-msaccess": "mdb",
+  "application/x-msbinder": "obd",
+  "application/x-mscardfile": "crd",
+  "application/x-msclip": "clp",
+  "application/x-msdownload": "exe",
+  "application/x-msmediaview": "mvb",
+  "application/x-msmetafile": "wmf",
+  "application/x-msmoney": "mny",
+  "application/x-mspublisher": "pub",
+  "application/x-msschedule": "scd",
+  "application/x-msterminal": "trm",
+  "application/x-mswrite": "wri",
+  "application/x-netcdf": "nc",
+  "application/x-nzb": "nzb",
+  "application/x-pkcs12": "p12",
+  "application/x-pkcs7-certificates": "p7b",
+  "application/x-pkcs7-certreqresp": "p7r",
+  "application/x-rar-compressed": "rar",
+  "application/x-research-info-systems": "ris",
+  "application/x-sh": "sh",
+  "application/x-shar": "shar",
+  "application/x-shockwave-flash": "swf",
+  "application/x-silverlight-app": "xap",
+  "application/x-sql": "sql",
+  "application/x-stuffit": "sit",
+  "application/x-stuffitx": "sitx",
+  "application/x-subrip": "srt",
+  "application/x-sv4cpio": "sv4cpio",
+  "application/x-sv4crc": "sv4crc",
+  "application/x-t3vm-image": "t3",
+  "application/x-tads": "gam",
+  "application/x-tar": "tar",
+  "application/x-tcl": "tcl",
+  "application/x-tex": "tex",
+  "application/x-tex-tfm": "tfm",
+  "application/x-texinfo": "texinfo",
+  "application/x-tgif": "obj",
+  "application/x-ustar": "ustar",
+  "application/x-wais-source": "src",
+  "application/x-x509-ca-cert": "der",
+  "application/x-xfig": "fig",
+  "application/x-xliff+xml": "xlf",
+  "application/x-xpinstall": "xpi",
+  "application/x-xz": "xz",
+  "application/x-zmachine": "z1",
+  "application/xaml+xml": "xaml",
+  "application/xcap-diff+xml": "xdf",
+  "application/xenc+xml": "xenc",
+  "application/xhtml+xml": "xhtml",
+  "application/xml": "xml",
+  "application/xml-dtd": "dtd",
+  "application/xop+xml": "xop",
+  "application/xproc+xml": "xpl",
+  "application/xslt+xml": "xslt",
+  "application/xspf+xml": "xspf",
+  "application/xv+xml": "mxml",
+  "application/yang": "yang",
+  "application/yin+xml": "yin",
+  "application/zip": "zip",
+  "audio/adpcm": "adp",
+  "audio/basic": "au",
+  "audio/midi": "mid",
+  "audio/mp4": "mp4a",
+  "audio/mpeg": "mpga",
+  "audio/ogg": "oga",
+  "audio/s3m": "s3m",
+  "audio/silk": "sil",
+  "audio/vnd.dece.audio": "uva",
+  "audio/vnd.digital-winds": "eol",
+  "audio/vnd.dra": "dra",
+  "audio/vnd.dts": "dts",
+  "audio/vnd.dts.hd": "dtshd",
+  "audio/vnd.lucent.voice": "lvp",
+  "audio/vnd.ms-playready.media.pya": "pya",
+  "audio/vnd.nuera.ecelp4800": "ecelp4800",
+  "audio/vnd.nuera.ecelp7470": "ecelp7470",
+  "audio/vnd.nuera.ecelp9600": "ecelp9600",
+  "audio/vnd.rip": "rip",
+  "audio/webm": "weba",
+  "audio/x-aac": "aac",
+  "audio/x-aiff": "aif",
+  "audio/x-caf": "caf",
+  "audio/x-flac": "flac",
+  "audio/x-matroska": "mka",
+  "audio/x-mpegurl": "m3u",
+  "audio/x-ms-wax": "wax",
+  "audio/x-ms-wma": "wma",
+  "audio/x-pn-realaudio": "ram",
+  "audio/x-pn-realaudio-plugin": "rmp",
+  "audio/x-wav": "wav",
+  "audio/xm": "xm",
+  "chemical/x-cdx": "cdx",
+  "chemical/x-cif": "cif",
+  "chemical/x-cmdf": "cmdf",
+  "chemical/x-cml": "cml",
+  "chemical/x-csml": "csml",
+  "chemical/x-xyz": "xyz",
+  "image/bmp": "bmp",
+  "image/cgm": "cgm",
+  "image/g3fax": "g3",
+  "image/gif": "gif",
+  "image/ief": "ief",
+  "image/jpeg": "jpeg",
+  "image/ktx": "ktx",
+  "image/png": "png",
+  "image/prs.btif": "btif",
+  "image/sgi": "sgi",
+  "image/svg+xml": "svg",
+  "image/tiff": "tiff",
+  "image/vnd.adobe.photoshop": "psd",
+  "image/vnd.dece.graphic": "uvi",
+  "image/vnd.dvb.subtitle": "sub",
+  "image/vnd.djvu": "djvu",
+  "image/vnd.dwg": "dwg",
+  "image/vnd.dxf": "dxf",
+  "image/vnd.fastbidsheet": "fbs",
+  "image/vnd.fpx": "fpx",
+  "image/vnd.fst": "fst",
+  "image/vnd.fujixerox.edmics-mmr": "mmr",
+  "image/vnd.fujixerox.edmics-rlc": "rlc",
+  "image/vnd.ms-modi": "mdi",
+  "image/vnd.ms-photo": "wdp",
+  "image/vnd.net-fpx": "npx",
+  "image/vnd.wap.wbmp": "wbmp",
+  "image/vnd.xiff": "xif",
+  "image/webp": "webp",
+  "image/x-3ds": "3ds",
+  "image/x-cmu-raster": "ras",
+  "image/x-cmx": "cmx",
+  "image/x-freehand": "fh",
+  "image/x-icon": "ico",
+  "image/x-mrsid-image": "sid",
+  "image/x-pcx": "pcx",
+  "image/x-pict": "pic",
+  "image/x-portable-anymap": "pnm",
+  "image/x-portable-bitmap": "pbm",
+  "image/x-portable-graymap": "pgm",
+  "image/x-portable-pixmap": "ppm",
+  "image/x-rgb": "rgb",
+  "image/x-tga": "tga",
+  "image/x-xbitmap": "xbm",
+  "image/x-xpixmap": "xpm",
+  "image/x-xwindowdump": "xwd",
+  "message/rfc822": "eml",
+  "model/iges": "igs",
+  "model/mesh": "msh",
+  "model/vnd.collada+xml": "dae",
+  "model/vnd.dwf": "dwf",
+  "model/vnd.gdl": "gdl",
+  "model/vnd.gtw": "gtw",
+  "model/vnd.mts": "mts",
+  "model/vnd.vtu": "vtu",
+  "model/vrml": "wrl",
+  "model/x3d+binary": "x3db",
+  "model/x3d+vrml": "x3dv",
+  "model/x3d+xml": "x3d",
+  "text/cache-manifest": "appcache",
+  "text/calendar": "ics",
+  "text/css": "css",
+  "text/csv": "csv",
+  "text/html": "html",
+  "text/n3": "n3",
+  "text/plain": "txt",
+  "text/prs.lines.tag": "dsc",
+  "text/richtext": "rtx",
+  "text/sgml": "sgml",
+  "text/tab-separated-values": "tsv",
+  "text/troff": "t",
+  "text/turtle": "ttl",
+  "text/uri-list": "uri",
+  "text/vcard": "vcard",
+  "text/vnd.curl": "curl",
+  "text/vnd.curl.dcurl": "dcurl",
+  "text/vnd.curl.scurl": "scurl",
+  "text/vnd.curl.mcurl": "mcurl",
+  "text/vnd.dvb.subtitle": "sub",
+  "text/vnd.fly": "fly",
+  "text/vnd.fmi.flexstor": "flx",
+  "text/vnd.graphviz": "gv",
+  "text/vnd.in3d.3dml": "3dml",
+  "text/vnd.in3d.spot": "spot",
+  "text/vnd.sun.j2me.app-descriptor": "jad",
+  "text/vnd.wap.wml": "wml",
+  "text/vnd.wap.wmlscript": "wmls",
+  "text/x-asm": "s",
+  "text/x-c": "c",
+  "text/x-fortran": "f",
+  "text/x-java-source": "java",
+  "text/x-opml": "opml",
+  "text/x-pascal": "p",
+  "text/x-nfo": "nfo",
+  "text/x-setext": "etx",
+  "text/x-sfv": "sfv",
+  "text/x-uuencode": "uu",
+  "text/x-vcalendar": "vcs",
+  "text/x-vcard": "vcf",
+  "video/3gpp": "3gp",
+  "video/3gpp2": "3g2",
+  "video/h261": "h261",
+  "video/h263": "h263",
+  "video/h264": "h264",
+  "video/jpeg": "jpgv",
+  "video/jpm": "jpm",
+  "video/mj2": "mj2",
+  "video/mp4": "mp4",
+  "video/mpeg": "mpeg",
+  "video/ogg": "ogv",
+  "video/quicktime": "qt",
+  "video/vnd.dece.hd": "uvh",
+  "video/vnd.dece.mobile": "uvm",
+  "video/vnd.dece.pd": "uvp",
+  "video/vnd.dece.sd": "uvs",
+  "video/vnd.dece.video": "uvv",
+  "video/vnd.dvb.file": "dvb",
+  "video/vnd.fvt": "fvt",
+  "video/vnd.mpegurl": "mxu",
+  "video/vnd.ms-playready.media.pyv": "pyv",
+  "video/vnd.uvvu.mp4": "uvu",
+  "video/vnd.vivo": "viv",
+  "video/webm": "webm",
+  "video/x-f4v": "f4v",
+  "video/x-fli": "fli",
+  "video/x-flv": "flv",
+  "video/x-m4v": "m4v",
+  "video/x-matroska": "mkv",
+  "video/x-mng": "mng",
+  "video/x-ms-asf": "asf",
+  "video/x-ms-vob": "vob",
+  "video/x-ms-wm": "wm",
+  "video/x-ms-wmv": "wmv",
+  "video/x-ms-wmx": "wmx",
+  "video/x-ms-wvx": "wvx",
+  "video/x-msvideo": "avi",
+  "video/x-sgi-movie": "movie",
+  "video/x-smv": "smv",
+  "x-conference/x-cooltalk": "ice",
+  "text/vtt": "vtt",
+  "application/x-chrome-extension": "crx",
+  "text/x-component": "htc",
+  "video/MP2T": "ts",
+  "text/event-stream": "event-stream",
+  "application/x-web-app-manifest+json": "webapp",
+  "text/x-lua": "lua",
+  "application/x-lua-bytecode": "luac",
+  "text/x-markdown": "markdown"
+}
+  , extension: function (mimeType) {
+  var type = mimeType.match(/^\s*([^;\s]*)(?:;|\s|$)/)[1].toLowerCase();
+  return this.extensions[type];
+}
+  , define: function (map) {
+  for (var type in map) {
+    var exts = map[type];
+
+    for (var i = 0; i < exts.length; i++) {
+      if (false && this.types[exts]) {
+        console.warn(this._loading.replace(/.*\//, ''), 'changes "' + exts[i] + '" extension type from ' +
+          this.types[exts] + ' to ' + type);
+      }
+
+      this.types[exts[i]] = type;
+    }
+
+    // Default extension is the first one we encounter
+    if (!this.extensions[type]) {
+      this.extensions[type] = exts[0];
+    }
+  }
+}
+  , charsets: {lookup: function (mimeType, fallback) {
+    // Assume text types are utf8
+    return (/^text\//).test(mimeType) ? 'UTF-8' : fallback;
+  }}
+}
+mime.types.constructor = undefined
+mime.extensions.constructor = undefined
+},{}],65:[function(require,module,exports){
 require=(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({"PcZj9L":[function(require,module,exports){
 var TA = require('typedarray')
 var xDataView = typeof DataView === 'undefined'
@@ -19760,7 +22260,7 @@ function packF32(v) { return packIEEE754(v, 8, 23); }
 },{}]},{},[])
 ;;module.exports=require("native-buffer-browserify").Buffer
 
-},{}],64:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -19815,7 +22315,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],65:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function () {
   "use strict";
 
@@ -19835,7 +22335,7 @@ var Buffer=require("__browserify_Buffer");(function () {
   module.exports = btoa;
 }());
 
-},{"__browserify_Buffer":63}],66:[function(require,module,exports){
+},{"__browserify_Buffer":65}],68:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -20063,7 +22563,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.AES;
 
 }));
-},{"./cipher-core":67,"./core":68,"./enc-base64":69,"./evpkdf":71,"./md5":73}],67:[function(require,module,exports){
+},{"./cipher-core":69,"./core":70,"./enc-base64":71,"./evpkdf":73,"./md5":75}],69:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -20939,7 +23439,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 
 
 }));
-},{"./core":68}],68:[function(require,module,exports){
+},{"./core":70}],70:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -21685,7 +24185,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS;
 
 }));
-},{}],69:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -21809,7 +24309,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.enc.Base64;
 
 }));
-},{"./core":68}],70:[function(require,module,exports){
+},{"./core":70}],72:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -21828,7 +24328,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.enc.Utf8;
 
 }));
-},{"./core":68}],71:[function(require,module,exports){
+},{"./core":70}],73:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -21961,7 +24461,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.EvpKDF;
 
 }));
-},{"./core":68,"./hmac":72,"./sha1":74}],72:[function(require,module,exports){
+},{"./core":70,"./hmac":74,"./sha1":76}],74:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -22105,7 +24605,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 
 
 }));
-},{"./core":68}],73:[function(require,module,exports){
+},{"./core":70}],75:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -22374,7 +24874,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.MD5;
 
 }));
-},{"./core":68}],74:[function(require,module,exports){
+},{"./core":70}],76:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -22525,7 +25025,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 	return CryptoJS.SHA1;
 
 }));
-},{"./core":68}],75:[function(require,module,exports){
+},{"./core":70}],77:[function(require,module,exports){
 // Diacritics.js
 // 
 // Started as something to be an equivalent of the Google Java Library diacritics library for JavaScript.
@@ -22678,7 +25178,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 
   return output;
 });
-},{}],76:[function(require,module,exports){
+},{}],78:[function(require,module,exports){
 var process=require("__browserify_process");// vim:ts=4:sts=4:sw=4:
 /*!
  *
@@ -24584,7 +27084,408 @@ return Q;
 
 });
 
-},{"__browserify_process":64}],77:[function(require,module,exports){
+},{"__browserify_process":66}],79:[function(require,module,exports){
+(function(global) {
+
+  var WORKER_PATH;
+  var encoderWorker;
+  
+  var initWorker = function() {
+    WORKER_PATH = WORKER_PATH || global.workerPath + 'js/recorderWorker.js';
+    try {
+      encoderWorker = encoderWorker || new Worker(global.workerPath + 'js/mp3Worker.js');
+    } catch (e) {
+      console.warn("Web workers are not defined, recording will not work.", e);
+    }
+  }
+  var audio_context, source;
+
+  var __log = function(e, data) {
+    var log = document.querySelector("#log");
+    if (log && log.length > 0) {
+      log = log[0];
+      log.innerHTML += "\n" + e + " " + (data || '');
+    } else {
+      console.log(e, data);
+    }
+  };
+
+  var Recorder = function(cfg) {
+    initWorker();
+    var config = cfg || {};
+    var bufferLen = config.bufferLen || 4096;
+    var self = this;
+    var btnPlay = document.createElement('button');
+    var btnRecord = document.createElement('button');
+    var btnStop = document.createElement('button');
+    var btnSave = document.createElement('button');
+    if (!config.element) {
+      __log('No element specified.  Cannot initialise recorder.');
+      return;
+    }
+    this.element = config.element;
+    this.vumeter = null;
+    this.outputFormat = config.format || config.element.getAttribute('data-format') || 'wav';
+    this.callback = config.callback || config.element.getAttribute('data-callback') || 'console.log';
+    this.audioData = null;
+
+    audio_context = global.audio_context;
+    source = global.audio_source;
+
+    this.context = source.context;
+    this.node = (this.context.createScriptProcessor ||
+      this.context.createJavaScriptNode).call(this.context,
+      bufferLen, 2, 2);
+    this.analyser = this.context.createAnalyser();
+    this.analyser.smoothingTimeConstant = 0.3;
+    this.analyser.fftSize = 1024;
+    this.audio = null;
+    this.playing = false;
+    var worker = new Worker(config.workerPath || WORKER_PATH);
+    worker.postMessage({
+      command: 'init',
+      config: {
+        sampleRate: this.context.sampleRate
+      }
+    });
+    var recording = false,
+      currCallback;
+
+    this.node.onaudioprocess = function(e) {
+      if (!recording) return;
+
+      worker.postMessage({
+        command: 'record',
+        buffer: [
+          e.inputBuffer.getChannelData(0)
+        ]
+      });
+
+      // VU Meter.
+      var array = new Uint8Array(self.analyser.frequencyBinCount);
+      self.analyser.getByteFrequencyData(array);
+      var values = 0;
+
+      var length = array.length;
+      for (var i = 0; i < length; i++) {
+        values += array[i];
+      }
+
+      var average = values / length;
+      self.vumeter.style.width = Math.min(parseInt(average * 2), 100) + '%';
+    };
+
+    this.configure = function(cfg) {
+      for (var prop in cfg) {
+        if (cfg.hasOwnProperty(prop)) {
+          config[prop] = cfg[prop];
+        }
+      }
+    };
+
+    this.toggleRecording = function() {
+      if (recording) {
+        return self.stop();
+      }
+      self.record();
+      btnStop.disabled = false;
+      btnPlay.disabled = true;
+      config.element.className += ' recording';
+      self.audio = null;
+      __log('Recording...');
+    };
+
+    this.record = function() {
+      recording = true;
+    };
+
+    this.stop = function() {
+      if (self.playing) {
+        self.audio.pause();
+        self.audio.currentTime = 0;
+        self.playing = false;
+        btnPlay.className = 'btn-play';
+        btnPlay.innerHTML = '<span class="icon-play"></span>';
+      } else {
+        self.stopRecording();
+        removeClass(config.element, 'recording');
+        __log('Stopped recording.');
+
+        // create WAV download link using audio data blob
+        self.exportWAV();
+
+        self.clear();
+      }
+      btnStop.disabled = true;
+      btnRecord.disabled = false;
+      btnSave.disabled = false;
+    };
+
+    this.stopRecording = function() {
+      recording = false;
+    };
+
+    this.play = function() {
+      if (self.playing) {
+        self.audio.pause();
+        self.playing = false;
+        btnStop.disabled = true;
+        btnRecord.disabled = false;
+        btnPlay.className = 'btn-play';
+        btnPlay.innerHTML = '<span class="icon-play"></span>';
+      } else {
+        if (self.audio === null) {
+          var reader = new FileReader();
+          reader.onload = function(event) {
+            self.audio = new Audio(event.target.result);
+            self.play();
+          };
+          reader.readAsDataURL(self.audioData);
+        } else {
+          self.audio.play();
+          self.playing = true;
+          btnStop.disabled = false;
+          btnRecord.disabled = true;
+          btnPlay.className = 'btn-pause';
+          btnPlay.innerHTML = '<span class="icon-pause"></span>';
+        }
+      }
+    };
+
+    this.save = function() {
+      btnPlay.disabled = true;
+      btnStop.disabled = true;
+      btnRecord.disabled = true;
+      btnSave.disabled = true;
+      config.element.className += ' processing';
+      if (self.outputFormat === 'mp3') {
+        self.convertToMP3();
+      } else {
+        // Assume WAV.
+        global[self.callback](self, self.audioData, config.element);
+      }
+    };
+
+    this.clear = function() {
+      worker.postMessage({
+        command: 'clear'
+      });
+      initButtons();
+      removeClass(config.element, 'recording');
+      removeClass(config.element, 'processing');
+    };
+
+    this.getBuffer = function(cb) {
+      currCallback = cb || config.callback;
+      worker.postMessage({
+        command: 'getBuffer'
+      });
+    };
+
+    this.exportWAV = function(type) {
+      type = type || config.type || 'audio/wav';
+      worker.postMessage({
+        command: 'exportWAV',
+        type: type
+      });
+    };
+
+    worker.onmessage = function(e) {
+      var blob = e.data;
+      self.audioData = blob;
+      btnPlay.disabled = false;
+    };
+
+    this.convertToMP3 = function() {
+      var arrayBuffer;
+      var fileReader = new FileReader();
+
+      fileReader.onload = function() {
+        arrayBuffer = this.result;
+        var buffer = new Uint8Array(arrayBuffer),
+          data = parseWav(buffer);
+
+        __log("Converting to Mp3");
+
+        encoderWorker.postMessage({
+          cmd: 'init',
+          config: {
+            mode: 3,
+            channels: 1,
+            samplerate: data.sampleRate,
+            bitrate: data.bitsPerSample
+          }
+        });
+
+        encoderWorker.postMessage({
+          cmd: 'encode',
+          buf: Uint8ArrayToFloat32Array(data.samples)
+        });
+        encoderWorker.postMessage({
+          cmd: 'finish'
+        });
+        encoderWorker.onmessage = function(e) {
+          if (e.data.cmd == 'data') {
+
+            __log("Done converting to Mp3");
+
+            var mp3Blob = new Blob([new Uint8Array(e.data.buf)], {
+              type: 'audio/mp3'
+            });
+            global[self.callback](self, mp3Blob, config.element);
+
+          }
+        };
+      };
+
+      fileReader.readAsArrayBuffer(this.audioData);
+    };
+
+
+    var encode64 = function(buffer) {
+      var binary = '',
+        bytes = new Uint8Array(buffer),
+        len = bytes.byteLength;
+
+      for (var i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return global.btoa(binary);
+    };
+
+    var parseWav = function(wav) {
+      var readInt = function(i, bytes) {
+        var ret = 0,
+          shft = 0;
+
+        while (bytes) {
+          ret += wav[i] << shft;
+          shft += 8;
+          i++;
+          bytes--;
+        }
+        return ret;
+      };
+      if (readInt(20, 2) != 1) throw 'Invalid compression code, not PCM';
+      if (readInt(22, 2) != 1) throw 'Invalid number of channels, not 1';
+      return {
+        sampleRate: readInt(24, 4),
+        bitsPerSample: readInt(34, 2),
+        samples: wav.subarray(44)
+      };
+    };
+
+    var Uint8ArrayToFloat32Array = function(u8a) {
+      var f32Buffer = new Float32Array(u8a.length);
+      for (var i = 0; i < u8a.length; i++) {
+        var value = u8a[i << 1] + (u8a[(i << 1) + 1] << 8);
+        if (value >= 0x8000) value |= ~0x7FFF;
+        f32Buffer[i] = value / 0x8000;
+      }
+      return f32Buffer;
+    };
+
+    var removeClass = function(el, name) {
+      el.className = el.className.replace(' ' + name, '');
+    };
+
+    var buildInterface = function() {
+      __log('Building interface...');
+      initButtons();
+      config.element.appendChild(btnPlay);
+      config.element.appendChild(btnRecord);
+      config.element.appendChild(btnStop);
+      config.element.appendChild(btnSave);
+      self.vumeter = config.element.querySelector('.btn-record .vumeter');
+      __log('Interface built.');
+    };
+    var initButtons = function() {
+      btnRecord.onclick = self.toggleRecording;
+      btnRecord.className = 'btn-record';
+      btnRecord.innerHTML = '<span class="vumeter"></span><span class="icon-record"></span>';
+      btnRecord.disabled = false;
+      btnStop.onclick = self.stop;
+      btnStop.className = 'btn-stop';
+      btnStop.innerHTML = '<span class="icon-stop"></span>';
+      btnStop.disabled = true;
+      btnPlay.onclick = self.play;
+      btnPlay.className = 'btn-play';
+      btnPlay.innerHTML = '<span class="icon-play"></span>';
+      btnPlay.disabled = true;
+      btnSave.onclick = self.save;
+      btnSave.className = 'btn-save';
+      btnSave.innerHTML = '<span class="icon-upload"></span>';
+      btnSave.disabled = true;
+    };
+
+    source.connect(this.analyser);
+    this.analyser.connect(this.node);
+    this.node.connect(this.context.destination);
+
+    buildInterface();
+
+    return this;
+    // __log('Recorder initialised.');
+  };
+
+  global.Recorder = Recorder;
+
+  var initRecorder = function() {
+    if (global.audio_context) {
+      console.log("audio_context already ready");
+      return;
+    }
+    try {
+      // webkit shim
+      global.AudioContext = global.AudioContext || global.webkitAudioContext;
+      navigator.getUserMedia = (navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia ||
+        navigator.msGetUserMedia);
+      global.URL = global.URL || global.webkitURL;
+
+      audio_context = global.audio_context = new global.AudioContext();
+      __log('Audio context set up.');
+      __log('navigator.getUserMedia ' + (navigator.getUserMedia ? 'available.' : 'not present!'));
+    } catch (e) {
+      alert('No web audio support in this browser!');
+    }
+
+    navigator.getUserMedia({
+      audio: true
+    }, startUserMedia, function(e) {
+      __log('No live audio input: ' + e);
+    });
+  };
+
+  var startUserMedia = function(stream) {
+    if (globa.audio_source) {
+      console.log("source already ready");
+      return;
+    }
+    source = global.audio_source = audio_context.createMediaStreamSource(stream);
+    __log('Media stream created.');
+    __log("input sample rate " + source.context.sampleRate);
+
+    var recorders = document.querySelectorAll('.RecordMP3js-recorder');
+    for (var i = 0; i < recorders.length; i++) {
+      recorders[i].recorder = new Recorder({
+        element: recorders[i]
+      });
+    }
+  };
+
+  if (global.addEventListener) {
+    global.addEventListener('load', initRecorder, false);
+  } else if (global.attachEvent) {
+    global.attachEvent('onload', initRecorder);
+  } else {
+    global.initRecorder = initRecorder;
+  }
+
+})(exports || window);
+
+},{}],80:[function(require,module,exports){
 /*
  * textgrid
  * https://github.com/OpenSourceFieldlinguistics/PraatTextGridJS
@@ -24865,8 +27766,8 @@ return Q;
 
 }(typeof exports === "object" && exports || this));
 
-},{}],78:[function(require,module,exports){
-//     Underscore.js 1.6.0
+},{}],81:[function(require,module,exports){
+//     Underscore.js 1.7.0
 //     http://underscorejs.org
 //     (c) 2009-2014 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
 //     Underscore may be freely distributed under the MIT license.
@@ -24882,9 +27783,6 @@ return Q;
   // Save the previous value of the `_` variable.
   var previousUnderscore = root._;
 
-  // Establish the object that gets returned to break out of a loop iteration.
-  var breaker = {};
-
   // Save bytes in the minified (but not gzipped) version:
   var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
 
@@ -24899,15 +27797,6 @@ return Q;
   // All **ECMAScript 5** native function implementations that we hope to use
   // are declared here.
   var
-    nativeForEach      = ArrayProto.forEach,
-    nativeMap          = ArrayProto.map,
-    nativeReduce       = ArrayProto.reduce,
-    nativeReduceRight  = ArrayProto.reduceRight,
-    nativeFilter       = ArrayProto.filter,
-    nativeEvery        = ArrayProto.every,
-    nativeSome         = ArrayProto.some,
-    nativeIndexOf      = ArrayProto.indexOf,
-    nativeLastIndexOf  = ArrayProto.lastIndexOf,
     nativeIsArray      = Array.isArray,
     nativeKeys         = Object.keys,
     nativeBind         = FuncProto.bind;
@@ -24921,8 +27810,7 @@ return Q;
 
   // Export the Underscore object for **Node.js**, with
   // backwards-compatibility for the old `require()` API. If we're in
-  // the browser, add `_` as a global object via a string identifier,
-  // for Closure Compiler "advanced" mode.
+  // the browser, add `_` as a global object.
   if (typeof exports !== 'undefined') {
     if (typeof module !== 'undefined' && module.exports) {
       exports = module.exports = _;
@@ -24933,98 +27821,125 @@ return Q;
   }
 
   // Current version.
-  _.VERSION = '1.6.0';
+  _.VERSION = '1.7.0';
+
+  // Internal function that returns an efficient (for current engines) version
+  // of the passed-in callback, to be repeatedly applied in other Underscore
+  // functions.
+  var createCallback = function(func, context, argCount) {
+    if (context === void 0) return func;
+    switch (argCount == null ? 3 : argCount) {
+      case 1: return function(value) {
+        return func.call(context, value);
+      };
+      case 2: return function(value, other) {
+        return func.call(context, value, other);
+      };
+      case 3: return function(value, index, collection) {
+        return func.call(context, value, index, collection);
+      };
+      case 4: return function(accumulator, value, index, collection) {
+        return func.call(context, accumulator, value, index, collection);
+      };
+    }
+    return function() {
+      return func.apply(context, arguments);
+    };
+  };
+
+  // A mostly-internal function to generate callbacks that can be applied
+  // to each element in a collection, returning the desired result — either
+  // identity, an arbitrary callback, a property matcher, or a property accessor.
+  _.iteratee = function(value, context, argCount) {
+    if (value == null) return _.identity;
+    if (_.isFunction(value)) return createCallback(value, context, argCount);
+    if (_.isObject(value)) return _.matches(value);
+    return _.property(value);
+  };
 
   // Collection Functions
   // --------------------
 
   // The cornerstone, an `each` implementation, aka `forEach`.
-  // Handles objects with the built-in `forEach`, arrays, and raw objects.
-  // Delegates to **ECMAScript 5**'s native `forEach` if available.
-  var each = _.each = _.forEach = function(obj, iterator, context) {
+  // Handles raw objects in addition to array-likes. Treats all
+  // sparse array-likes as if they were dense.
+  _.each = _.forEach = function(obj, iteratee, context) {
     if (obj == null) return obj;
-    if (nativeForEach && obj.forEach === nativeForEach) {
-      obj.forEach(iterator, context);
-    } else if (obj.length === +obj.length) {
-      for (var i = 0, length = obj.length; i < length; i++) {
-        if (iterator.call(context, obj[i], i, obj) === breaker) return;
+    iteratee = createCallback(iteratee, context);
+    var i, length = obj.length;
+    if (length === +length) {
+      for (i = 0; i < length; i++) {
+        iteratee(obj[i], i, obj);
       }
     } else {
       var keys = _.keys(obj);
-      for (var i = 0, length = keys.length; i < length; i++) {
-        if (iterator.call(context, obj[keys[i]], keys[i], obj) === breaker) return;
+      for (i = 0, length = keys.length; i < length; i++) {
+        iteratee(obj[keys[i]], keys[i], obj);
       }
     }
     return obj;
   };
 
-  // Return the results of applying the iterator to each element.
-  // Delegates to **ECMAScript 5**'s native `map` if available.
-  _.map = _.collect = function(obj, iterator, context) {
-    var results = [];
-    if (obj == null) return results;
-    if (nativeMap && obj.map === nativeMap) return obj.map(iterator, context);
-    each(obj, function(value, index, list) {
-      results.push(iterator.call(context, value, index, list));
-    });
+  // Return the results of applying the iteratee to each element.
+  _.map = _.collect = function(obj, iteratee, context) {
+    if (obj == null) return [];
+    iteratee = _.iteratee(iteratee, context);
+    var keys = obj.length !== +obj.length && _.keys(obj),
+        length = (keys || obj).length,
+        results = Array(length),
+        currentKey;
+    for (var index = 0; index < length; index++) {
+      currentKey = keys ? keys[index] : index;
+      results[index] = iteratee(obj[currentKey], currentKey, obj);
+    }
     return results;
   };
 
   var reduceError = 'Reduce of empty array with no initial value';
 
   // **Reduce** builds up a single result from a list of values, aka `inject`,
-  // or `foldl`. Delegates to **ECMAScript 5**'s native `reduce` if available.
-  _.reduce = _.foldl = _.inject = function(obj, iterator, memo, context) {
-    var initial = arguments.length > 2;
+  // or `foldl`.
+  _.reduce = _.foldl = _.inject = function(obj, iteratee, memo, context) {
     if (obj == null) obj = [];
-    if (nativeReduce && obj.reduce === nativeReduce) {
-      if (context) iterator = _.bind(iterator, context);
-      return initial ? obj.reduce(iterator, memo) : obj.reduce(iterator);
+    iteratee = createCallback(iteratee, context, 4);
+    var keys = obj.length !== +obj.length && _.keys(obj),
+        length = (keys || obj).length,
+        index = 0, currentKey;
+    if (arguments.length < 3) {
+      if (!length) throw new TypeError(reduceError);
+      memo = obj[keys ? keys[index++] : index++];
     }
-    each(obj, function(value, index, list) {
-      if (!initial) {
-        memo = value;
-        initial = true;
-      } else {
-        memo = iterator.call(context, memo, value, index, list);
-      }
-    });
-    if (!initial) throw new TypeError(reduceError);
+    for (; index < length; index++) {
+      currentKey = keys ? keys[index] : index;
+      memo = iteratee(memo, obj[currentKey], currentKey, obj);
+    }
     return memo;
   };
 
   // The right-associative version of reduce, also known as `foldr`.
-  // Delegates to **ECMAScript 5**'s native `reduceRight` if available.
-  _.reduceRight = _.foldr = function(obj, iterator, memo, context) {
-    var initial = arguments.length > 2;
+  _.reduceRight = _.foldr = function(obj, iteratee, memo, context) {
     if (obj == null) obj = [];
-    if (nativeReduceRight && obj.reduceRight === nativeReduceRight) {
-      if (context) iterator = _.bind(iterator, context);
-      return initial ? obj.reduceRight(iterator, memo) : obj.reduceRight(iterator);
+    iteratee = createCallback(iteratee, context, 4);
+    var keys = obj.length !== + obj.length && _.keys(obj),
+        index = (keys || obj).length,
+        currentKey;
+    if (arguments.length < 3) {
+      if (!index) throw new TypeError(reduceError);
+      memo = obj[keys ? keys[--index] : --index];
     }
-    var length = obj.length;
-    if (length !== +length) {
-      var keys = _.keys(obj);
-      length = keys.length;
+    while (index--) {
+      currentKey = keys ? keys[index] : index;
+      memo = iteratee(memo, obj[currentKey], currentKey, obj);
     }
-    each(obj, function(value, index, list) {
-      index = keys ? keys[--length] : --length;
-      if (!initial) {
-        memo = obj[index];
-        initial = true;
-      } else {
-        memo = iterator.call(context, memo, obj[index], index, list);
-      }
-    });
-    if (!initial) throw new TypeError(reduceError);
     return memo;
   };
 
   // Return the first value which passes a truth test. Aliased as `detect`.
   _.find = _.detect = function(obj, predicate, context) {
     var result;
-    any(obj, function(value, index, list) {
-      if (predicate.call(context, value, index, list)) {
+    predicate = _.iteratee(predicate, context);
+    _.some(obj, function(value, index, list) {
+      if (predicate(value, index, list)) {
         result = value;
         return true;
       }
@@ -25033,61 +27948,58 @@ return Q;
   };
 
   // Return all the elements that pass a truth test.
-  // Delegates to **ECMAScript 5**'s native `filter` if available.
   // Aliased as `select`.
   _.filter = _.select = function(obj, predicate, context) {
     var results = [];
     if (obj == null) return results;
-    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(predicate, context);
-    each(obj, function(value, index, list) {
-      if (predicate.call(context, value, index, list)) results.push(value);
+    predicate = _.iteratee(predicate, context);
+    _.each(obj, function(value, index, list) {
+      if (predicate(value, index, list)) results.push(value);
     });
     return results;
   };
 
   // Return all the elements for which a truth test fails.
   _.reject = function(obj, predicate, context) {
-    return _.filter(obj, function(value, index, list) {
-      return !predicate.call(context, value, index, list);
-    }, context);
+    return _.filter(obj, _.negate(_.iteratee(predicate)), context);
   };
 
   // Determine whether all of the elements match a truth test.
-  // Delegates to **ECMAScript 5**'s native `every` if available.
   // Aliased as `all`.
   _.every = _.all = function(obj, predicate, context) {
-    predicate || (predicate = _.identity);
-    var result = true;
-    if (obj == null) return result;
-    if (nativeEvery && obj.every === nativeEvery) return obj.every(predicate, context);
-    each(obj, function(value, index, list) {
-      if (!(result = result && predicate.call(context, value, index, list))) return breaker;
-    });
-    return !!result;
+    if (obj == null) return true;
+    predicate = _.iteratee(predicate, context);
+    var keys = obj.length !== +obj.length && _.keys(obj),
+        length = (keys || obj).length,
+        index, currentKey;
+    for (index = 0; index < length; index++) {
+      currentKey = keys ? keys[index] : index;
+      if (!predicate(obj[currentKey], currentKey, obj)) return false;
+    }
+    return true;
   };
 
   // Determine if at least one element in the object matches a truth test.
-  // Delegates to **ECMAScript 5**'s native `some` if available.
   // Aliased as `any`.
-  var any = _.some = _.any = function(obj, predicate, context) {
-    predicate || (predicate = _.identity);
-    var result = false;
-    if (obj == null) return result;
-    if (nativeSome && obj.some === nativeSome) return obj.some(predicate, context);
-    each(obj, function(value, index, list) {
-      if (result || (result = predicate.call(context, value, index, list))) return breaker;
-    });
-    return !!result;
+  _.some = _.any = function(obj, predicate, context) {
+    if (obj == null) return false;
+    predicate = _.iteratee(predicate, context);
+    var keys = obj.length !== +obj.length && _.keys(obj),
+        length = (keys || obj).length,
+        index, currentKey;
+    for (index = 0; index < length; index++) {
+      currentKey = keys ? keys[index] : index;
+      if (predicate(obj[currentKey], currentKey, obj)) return true;
+    }
+    return false;
   };
 
   // Determine if the array or object contains a given value (using `===`).
   // Aliased as `include`.
   _.contains = _.include = function(obj, target) {
     if (obj == null) return false;
-    if (nativeIndexOf && obj.indexOf === nativeIndexOf) return obj.indexOf(target) != -1;
-    return any(obj, function(value) {
-      return value === target;
-    });
+    if (obj.length !== +obj.length) obj = _.values(obj);
+    return _.indexOf(obj, target) >= 0;
   };
 
   // Invoke a method (with arguments) on every item in a collection.
@@ -25116,51 +28028,67 @@ return Q;
     return _.find(obj, _.matches(attrs));
   };
 
-  // Return the maximum element or (element-based computation).
-  // Can't optimize arrays of integers longer than 65,535 elements.
-  // See [WebKit Bug 80797](https://bugs.webkit.org/show_bug.cgi?id=80797)
-  _.max = function(obj, iterator, context) {
-    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
-      return Math.max.apply(Math, obj);
-    }
-    var result = -Infinity, lastComputed = -Infinity;
-    each(obj, function(value, index, list) {
-      var computed = iterator ? iterator.call(context, value, index, list) : value;
-      if (computed > lastComputed) {
-        result = value;
-        lastComputed = computed;
+  // Return the maximum element (or element-based computation).
+  _.max = function(obj, iteratee, context) {
+    var result = -Infinity, lastComputed = -Infinity,
+        value, computed;
+    if (iteratee == null && obj != null) {
+      obj = obj.length === +obj.length ? obj : _.values(obj);
+      for (var i = 0, length = obj.length; i < length; i++) {
+        value = obj[i];
+        if (value > result) {
+          result = value;
+        }
       }
-    });
+    } else {
+      iteratee = _.iteratee(iteratee, context);
+      _.each(obj, function(value, index, list) {
+        computed = iteratee(value, index, list);
+        if (computed > lastComputed || computed === -Infinity && result === -Infinity) {
+          result = value;
+          lastComputed = computed;
+        }
+      });
+    }
     return result;
   };
 
   // Return the minimum element (or element-based computation).
-  _.min = function(obj, iterator, context) {
-    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
-      return Math.min.apply(Math, obj);
-    }
-    var result = Infinity, lastComputed = Infinity;
-    each(obj, function(value, index, list) {
-      var computed = iterator ? iterator.call(context, value, index, list) : value;
-      if (computed < lastComputed) {
-        result = value;
-        lastComputed = computed;
+  _.min = function(obj, iteratee, context) {
+    var result = Infinity, lastComputed = Infinity,
+        value, computed;
+    if (iteratee == null && obj != null) {
+      obj = obj.length === +obj.length ? obj : _.values(obj);
+      for (var i = 0, length = obj.length; i < length; i++) {
+        value = obj[i];
+        if (value < result) {
+          result = value;
+        }
       }
-    });
+    } else {
+      iteratee = _.iteratee(iteratee, context);
+      _.each(obj, function(value, index, list) {
+        computed = iteratee(value, index, list);
+        if (computed < lastComputed || computed === Infinity && result === Infinity) {
+          result = value;
+          lastComputed = computed;
+        }
+      });
+    }
     return result;
   };
 
-  // Shuffle an array, using the modern version of the
+  // Shuffle a collection, using the modern version of the
   // [Fisher-Yates shuffle](http://en.wikipedia.org/wiki/Fisher–Yates_shuffle).
   _.shuffle = function(obj) {
-    var rand;
-    var index = 0;
-    var shuffled = [];
-    each(obj, function(value) {
-      rand = _.random(index++);
-      shuffled[index - 1] = shuffled[rand];
-      shuffled[rand] = value;
-    });
+    var set = obj && obj.length === +obj.length ? obj : _.values(obj);
+    var length = set.length;
+    var shuffled = Array(length);
+    for (var index = 0, rand; index < length; index++) {
+      rand = _.random(0, index);
+      if (rand !== index) shuffled[index] = shuffled[rand];
+      shuffled[rand] = set[index];
+    }
     return shuffled;
   };
 
@@ -25175,21 +28103,14 @@ return Q;
     return _.shuffle(obj).slice(0, Math.max(0, n));
   };
 
-  // An internal function to generate lookup iterators.
-  var lookupIterator = function(value) {
-    if (value == null) return _.identity;
-    if (_.isFunction(value)) return value;
-    return _.property(value);
-  };
-
-  // Sort the object's values by a criterion produced by an iterator.
-  _.sortBy = function(obj, iterator, context) {
-    iterator = lookupIterator(iterator);
+  // Sort the object's values by a criterion produced by an iteratee.
+  _.sortBy = function(obj, iteratee, context) {
+    iteratee = _.iteratee(iteratee, context);
     return _.pluck(_.map(obj, function(value, index, list) {
       return {
         value: value,
         index: index,
-        criteria: iterator.call(context, value, index, list)
+        criteria: iteratee(value, index, list)
       };
     }).sort(function(left, right) {
       var a = left.criteria;
@@ -25204,12 +28125,12 @@ return Q;
 
   // An internal function used for aggregate "group by" operations.
   var group = function(behavior) {
-    return function(obj, iterator, context) {
+    return function(obj, iteratee, context) {
       var result = {};
-      iterator = lookupIterator(iterator);
-      each(obj, function(value, index) {
-        var key = iterator.call(context, value, index, obj);
-        behavior(result, key, value);
+      iteratee = _.iteratee(iteratee, context);
+      _.each(obj, function(value, index) {
+        var key = iteratee(value, index, obj);
+        behavior(result, value, key);
       });
       return result;
     };
@@ -25217,32 +28138,32 @@ return Q;
 
   // Groups the object's values by a criterion. Pass either a string attribute
   // to group by, or a function that returns the criterion.
-  _.groupBy = group(function(result, key, value) {
-    _.has(result, key) ? result[key].push(value) : result[key] = [value];
+  _.groupBy = group(function(result, value, key) {
+    if (_.has(result, key)) result[key].push(value); else result[key] = [value];
   });
 
   // Indexes the object's values by a criterion, similar to `groupBy`, but for
   // when you know that your index values will be unique.
-  _.indexBy = group(function(result, key, value) {
+  _.indexBy = group(function(result, value, key) {
     result[key] = value;
   });
 
   // Counts instances of an object that group by a certain criterion. Pass
   // either a string attribute to count by, or a function that returns the
   // criterion.
-  _.countBy = group(function(result, key) {
-    _.has(result, key) ? result[key]++ : result[key] = 1;
+  _.countBy = group(function(result, value, key) {
+    if (_.has(result, key)) result[key]++; else result[key] = 1;
   });
 
   // Use a comparator function to figure out the smallest index at which
   // an object should be inserted so as to maintain order. Uses binary search.
-  _.sortedIndex = function(array, obj, iterator, context) {
-    iterator = lookupIterator(iterator);
-    var value = iterator.call(context, obj);
+  _.sortedIndex = function(array, obj, iteratee, context) {
+    iteratee = _.iteratee(iteratee, context, 1);
+    var value = iteratee(obj);
     var low = 0, high = array.length;
     while (low < high) {
-      var mid = (low + high) >>> 1;
-      iterator.call(context, array[mid]) < value ? low = mid + 1 : high = mid;
+      var mid = low + high >>> 1;
+      if (iteratee(array[mid]) < value) low = mid + 1; else high = mid;
     }
     return low;
   };
@@ -25258,7 +28179,18 @@ return Q;
   // Return the number of elements in an object.
   _.size = function(obj) {
     if (obj == null) return 0;
-    return (obj.length === +obj.length) ? obj.length : _.keys(obj).length;
+    return obj.length === +obj.length ? obj.length : _.keys(obj).length;
+  };
+
+  // Split a collection into two arrays: one whose elements all satisfy the given
+  // predicate, and one whose elements all do not satisfy the predicate.
+  _.partition = function(obj, predicate, context) {
+    predicate = _.iteratee(predicate, context);
+    var pass = [], fail = [];
+    _.each(obj, function(value, key, obj) {
+      (predicate(value, key, obj) ? pass : fail).push(value);
+    });
+    return [pass, fail];
   };
 
   // Array Functions
@@ -25269,7 +28201,7 @@ return Q;
   // allows it to work with `_.map`.
   _.first = _.head = _.take = function(array, n, guard) {
     if (array == null) return void 0;
-    if ((n == null) || guard) return array[0];
+    if (n == null || guard) return array[0];
     if (n < 0) return [];
     return slice.call(array, 0, n);
   };
@@ -25279,14 +28211,14 @@ return Q;
   // the array, excluding the last N. The **guard** check allows it to work with
   // `_.map`.
   _.initial = function(array, n, guard) {
-    return slice.call(array, 0, array.length - ((n == null) || guard ? 1 : n));
+    return slice.call(array, 0, Math.max(0, array.length - (n == null || guard ? 1 : n)));
   };
 
   // Get the last element of an array. Passing **n** will return the last N
   // values in the array. The **guard** check allows it to work with `_.map`.
   _.last = function(array, n, guard) {
     if (array == null) return void 0;
-    if ((n == null) || guard) return array[array.length - 1];
+    if (n == null || guard) return array[array.length - 1];
     return slice.call(array, Math.max(array.length - n, 0));
   };
 
@@ -25295,7 +28227,7 @@ return Q;
   // the rest N values in the array. The **guard**
   // check allows it to work with `_.map`.
   _.rest = _.tail = _.drop = function(array, n, guard) {
-    return slice.call(array, (n == null) || guard ? 1 : n);
+    return slice.call(array, n == null || guard ? 1 : n);
   };
 
   // Trim out all falsy values from an array.
@@ -25304,23 +28236,26 @@ return Q;
   };
 
   // Internal implementation of a recursive `flatten` function.
-  var flatten = function(input, shallow, output) {
+  var flatten = function(input, shallow, strict, output) {
     if (shallow && _.every(input, _.isArray)) {
       return concat.apply(output, input);
     }
-    each(input, function(value) {
-      if (_.isArray(value) || _.isArguments(value)) {
-        shallow ? push.apply(output, value) : flatten(value, shallow, output);
+    for (var i = 0, length = input.length; i < length; i++) {
+      var value = input[i];
+      if (!_.isArray(value) && !_.isArguments(value)) {
+        if (!strict) output.push(value);
+      } else if (shallow) {
+        push.apply(output, value);
       } else {
-        output.push(value);
+        flatten(value, shallow, strict, output);
       }
-    });
+    }
     return output;
   };
 
   // Flatten out an array, either recursively (by default), or just one level.
   _.flatten = function(array, shallow) {
-    return flatten(array, shallow, []);
+    return flatten(array, shallow, false, []);
   };
 
   // Return a version of the array that does not contain the specified value(s).
@@ -25328,68 +28263,77 @@ return Q;
     return _.difference(array, slice.call(arguments, 1));
   };
 
-  // Split an array into two arrays: one whose elements all satisfy the given
-  // predicate, and one whose elements all do not satisfy the predicate.
-  _.partition = function(array, predicate) {
-    var pass = [], fail = [];
-    each(array, function(elem) {
-      (predicate(elem) ? pass : fail).push(elem);
-    });
-    return [pass, fail];
-  };
-
   // Produce a duplicate-free version of the array. If the array has already
   // been sorted, you have the option of using a faster algorithm.
   // Aliased as `unique`.
-  _.uniq = _.unique = function(array, isSorted, iterator, context) {
-    if (_.isFunction(isSorted)) {
-      context = iterator;
-      iterator = isSorted;
+  _.uniq = _.unique = function(array, isSorted, iteratee, context) {
+    if (array == null) return [];
+    if (!_.isBoolean(isSorted)) {
+      context = iteratee;
+      iteratee = isSorted;
       isSorted = false;
     }
-    var initial = iterator ? _.map(array, iterator, context) : array;
-    var results = [];
+    if (iteratee != null) iteratee = _.iteratee(iteratee, context);
+    var result = [];
     var seen = [];
-    each(initial, function(value, index) {
-      if (isSorted ? (!index || seen[seen.length - 1] !== value) : !_.contains(seen, value)) {
-        seen.push(value);
-        results.push(array[index]);
+    for (var i = 0, length = array.length; i < length; i++) {
+      var value = array[i];
+      if (isSorted) {
+        if (!i || seen !== value) result.push(value);
+        seen = value;
+      } else if (iteratee) {
+        var computed = iteratee(value, i, array);
+        if (_.indexOf(seen, computed) < 0) {
+          seen.push(computed);
+          result.push(value);
+        }
+      } else if (_.indexOf(result, value) < 0) {
+        result.push(value);
       }
-    });
-    return results;
+    }
+    return result;
   };
 
   // Produce an array that contains the union: each distinct element from all of
   // the passed-in arrays.
   _.union = function() {
-    return _.uniq(_.flatten(arguments, true));
+    return _.uniq(flatten(arguments, true, true, []));
   };
 
   // Produce an array that contains every item shared between all the
   // passed-in arrays.
   _.intersection = function(array) {
-    var rest = slice.call(arguments, 1);
-    return _.filter(_.uniq(array), function(item) {
-      return _.every(rest, function(other) {
-        return _.contains(other, item);
-      });
-    });
+    if (array == null) return [];
+    var result = [];
+    var argsLength = arguments.length;
+    for (var i = 0, length = array.length; i < length; i++) {
+      var item = array[i];
+      if (_.contains(result, item)) continue;
+      for (var j = 1; j < argsLength; j++) {
+        if (!_.contains(arguments[j], item)) break;
+      }
+      if (j === argsLength) result.push(item);
+    }
+    return result;
   };
 
   // Take the difference between one array and a number of other arrays.
   // Only the elements present in just the first array will remain.
   _.difference = function(array) {
-    var rest = concat.apply(ArrayProto, slice.call(arguments, 1));
-    return _.filter(array, function(value){ return !_.contains(rest, value); });
+    var rest = flatten(slice.call(arguments, 1), true, true, []);
+    return _.filter(array, function(value){
+      return !_.contains(rest, value);
+    });
   };
 
   // Zip together multiple lists into a single array -- elements that share
   // an index go together.
-  _.zip = function() {
-    var length = _.max(_.pluck(arguments, 'length').concat(0));
-    var results = new Array(length);
+  _.zip = function(array) {
+    if (array == null) return [];
+    var length = _.max(arguments, 'length').length;
+    var results = Array(length);
     for (var i = 0; i < length; i++) {
-      results[i] = _.pluck(arguments, '' + i);
+      results[i] = _.pluck(arguments, i);
     }
     return results;
   };
@@ -25410,10 +28354,8 @@ return Q;
     return result;
   };
 
-  // If the browser doesn't supply us with indexOf (I'm looking at you, **MSIE**),
-  // we need this function. Return the position of the first occurrence of an
-  // item in an array, or -1 if the item is not included in the array.
-  // Delegates to **ECMAScript 5**'s native `indexOf` if available.
+  // Return the position of the first occurrence of an item in an array,
+  // or -1 if the item is not included in the array.
   // If the array is large and already in sort order, pass `true`
   // for **isSorted** to use binary search.
   _.indexOf = function(array, item, isSorted) {
@@ -25421,26 +28363,23 @@ return Q;
     var i = 0, length = array.length;
     if (isSorted) {
       if (typeof isSorted == 'number') {
-        i = (isSorted < 0 ? Math.max(0, length + isSorted) : isSorted);
+        i = isSorted < 0 ? Math.max(0, length + isSorted) : isSorted;
       } else {
         i = _.sortedIndex(array, item);
         return array[i] === item ? i : -1;
       }
     }
-    if (nativeIndexOf && array.indexOf === nativeIndexOf) return array.indexOf(item, isSorted);
     for (; i < length; i++) if (array[i] === item) return i;
     return -1;
   };
 
-  // Delegates to **ECMAScript 5**'s native `lastIndexOf` if available.
   _.lastIndexOf = function(array, item, from) {
     if (array == null) return -1;
-    var hasIndex = from != null;
-    if (nativeLastIndexOf && array.lastIndexOf === nativeLastIndexOf) {
-      return hasIndex ? array.lastIndexOf(item, from) : array.lastIndexOf(item);
+    var idx = array.length;
+    if (typeof from == 'number') {
+      idx = from < 0 ? idx + from + 1 : Math.min(idx, from + 1);
     }
-    var i = (hasIndex ? from : array.length);
-    while (i--) if (array[i] === item) return i;
+    while (--idx >= 0) if (array[idx] === item) return idx;
     return -1;
   };
 
@@ -25452,15 +28391,13 @@ return Q;
       stop = start || 0;
       start = 0;
     }
-    step = arguments[2] || 1;
+    step = step || 1;
 
     var length = Math.max(Math.ceil((stop - start) / step), 0);
-    var idx = 0;
-    var range = new Array(length);
+    var range = Array(length);
 
-    while(idx < length) {
-      range[idx++] = start;
-      start += step;
+    for (var idx = 0; idx < length; idx++, start += step) {
+      range[idx] = start;
     }
 
     return range;
@@ -25470,7 +28407,7 @@ return Q;
   // ------------------
 
   // Reusable constructor function for prototype setting.
-  var ctor = function(){};
+  var Ctor = function(){};
 
   // Create a function bound to a given object (assigning `this`, and arguments,
   // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
@@ -25478,17 +28415,18 @@ return Q;
   _.bind = function(func, context) {
     var args, bound;
     if (nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
-    if (!_.isFunction(func)) throw new TypeError;
+    if (!_.isFunction(func)) throw new TypeError('Bind must be called on a function');
     args = slice.call(arguments, 2);
-    return bound = function() {
+    bound = function() {
       if (!(this instanceof bound)) return func.apply(context, args.concat(slice.call(arguments)));
-      ctor.prototype = func.prototype;
-      var self = new ctor;
-      ctor.prototype = null;
+      Ctor.prototype = func.prototype;
+      var self = new Ctor;
+      Ctor.prototype = null;
       var result = func.apply(self, args.concat(slice.call(arguments)));
-      if (Object(result) === result) return result;
+      if (_.isObject(result)) return result;
       return self;
     };
+    return bound;
   };
 
   // Partially apply a function by creating a version that has had some of its
@@ -25511,27 +28449,34 @@ return Q;
   // are the method names to be bound. Useful for ensuring that all callbacks
   // defined on an object belong to it.
   _.bindAll = function(obj) {
-    var funcs = slice.call(arguments, 1);
-    if (funcs.length === 0) throw new Error('bindAll must be passed function names');
-    each(funcs, function(f) { obj[f] = _.bind(obj[f], obj); });
+    var i, length = arguments.length, key;
+    if (length <= 1) throw new Error('bindAll must be passed function names');
+    for (i = 1; i < length; i++) {
+      key = arguments[i];
+      obj[key] = _.bind(obj[key], obj);
+    }
     return obj;
   };
 
   // Memoize an expensive function by storing its results.
   _.memoize = function(func, hasher) {
-    var memo = {};
-    hasher || (hasher = _.identity);
-    return function() {
-      var key = hasher.apply(this, arguments);
-      return _.has(memo, key) ? memo[key] : (memo[key] = func.apply(this, arguments));
+    var memoize = function(key) {
+      var cache = memoize.cache;
+      var address = hasher ? hasher.apply(this, arguments) : key;
+      if (!_.has(cache, address)) cache[address] = func.apply(this, arguments);
+      return cache[address];
     };
+    memoize.cache = {};
+    return memoize;
   };
 
   // Delays a function for the given number of milliseconds, and then calls
   // it with the arguments supplied.
   _.delay = function(func, wait) {
     var args = slice.call(arguments, 2);
-    return setTimeout(function(){ return func.apply(null, args); }, wait);
+    return setTimeout(function(){
+      return func.apply(null, args);
+    }, wait);
   };
 
   // Defers a function, scheduling it to run after the current call stack has
@@ -25549,12 +28494,12 @@ return Q;
     var context, args, result;
     var timeout = null;
     var previous = 0;
-    options || (options = {});
+    if (!options) options = {};
     var later = function() {
       previous = options.leading === false ? 0 : _.now();
       timeout = null;
       result = func.apply(context, args);
-      context = args = null;
+      if (!timeout) context = args = null;
     };
     return function() {
       var now = _.now();
@@ -25562,12 +28507,12 @@ return Q;
       var remaining = wait - (now - previous);
       context = this;
       args = arguments;
-      if (remaining <= 0) {
+      if (remaining <= 0 || remaining > wait) {
         clearTimeout(timeout);
         timeout = null;
         previous = now;
         result = func.apply(context, args);
-        context = args = null;
+        if (!timeout) context = args = null;
       } else if (!timeout && options.trailing !== false) {
         timeout = setTimeout(later, remaining);
       }
@@ -25584,13 +28529,14 @@ return Q;
 
     var later = function() {
       var last = _.now() - timestamp;
-      if (last < wait) {
+
+      if (last < wait && last > 0) {
         timeout = setTimeout(later, wait - last);
       } else {
         timeout = null;
         if (!immediate) {
           result = func.apply(context, args);
-          context = args = null;
+          if (!timeout) context = args = null;
         }
       }
     };
@@ -25600,28 +28546,13 @@ return Q;
       args = arguments;
       timestamp = _.now();
       var callNow = immediate && !timeout;
-      if (!timeout) {
-        timeout = setTimeout(later, wait);
-      }
+      if (!timeout) timeout = setTimeout(later, wait);
       if (callNow) {
         result = func.apply(context, args);
         context = args = null;
       }
 
       return result;
-    };
-  };
-
-  // Returns a function that will be executed at most one time, no matter how
-  // often you call it. Useful for lazy initialization.
-  _.once = function(func) {
-    var ran = false, memo;
-    return function() {
-      if (ran) return memo;
-      ran = true;
-      memo = func.apply(this, arguments);
-      func = null;
-      return memo;
     };
   };
 
@@ -25632,16 +28563,23 @@ return Q;
     return _.partial(wrapper, func);
   };
 
+  // Returns a negated version of the passed-in predicate.
+  _.negate = function(predicate) {
+    return function() {
+      return !predicate.apply(this, arguments);
+    };
+  };
+
   // Returns a function that is the composition of a list of functions, each
   // consuming the return value of the function that follows.
   _.compose = function() {
-    var funcs = arguments;
+    var args = arguments;
+    var start = args.length - 1;
     return function() {
-      var args = arguments;
-      for (var i = funcs.length - 1; i >= 0; i--) {
-        args = [funcs[i].apply(this, args)];
-      }
-      return args[0];
+      var i = start;
+      var result = args[start].apply(this, arguments);
+      while (i--) result = args[i].call(this, result);
+      return result;
     };
   };
 
@@ -25653,6 +28591,23 @@ return Q;
       }
     };
   };
+
+  // Returns a function that will only be executed before being called N times.
+  _.before = function(times, func) {
+    var memo;
+    return function() {
+      if (--times > 0) {
+        memo = func.apply(this, arguments);
+      } else {
+        func = null;
+      }
+      return memo;
+    };
+  };
+
+  // Returns a function that will be executed at most one time, no matter how
+  // often you call it. Useful for lazy initialization.
+  _.once = _.partial(_.before, 2);
 
   // Object Functions
   // ----------------
@@ -25671,7 +28626,7 @@ return Q;
   _.values = function(obj) {
     var keys = _.keys(obj);
     var length = keys.length;
-    var values = new Array(length);
+    var values = Array(length);
     for (var i = 0; i < length; i++) {
       values[i] = obj[keys[i]];
     }
@@ -25682,7 +28637,7 @@ return Q;
   _.pairs = function(obj) {
     var keys = _.keys(obj);
     var length = keys.length;
-    var pairs = new Array(length);
+    var pairs = Array(length);
     for (var i = 0; i < length; i++) {
       pairs[i] = [keys[i], obj[keys[i]]];
     }
@@ -25711,45 +28666,62 @@ return Q;
 
   // Extend a given object with all the properties in passed-in object(s).
   _.extend = function(obj) {
-    each(slice.call(arguments, 1), function(source) {
-      if (source) {
-        for (var prop in source) {
-          obj[prop] = source[prop];
+    if (!_.isObject(obj)) return obj;
+    var source, prop;
+    for (var i = 1, length = arguments.length; i < length; i++) {
+      source = arguments[i];
+      for (prop in source) {
+        if (hasOwnProperty.call(source, prop)) {
+            obj[prop] = source[prop];
         }
       }
-    });
+    }
     return obj;
   };
 
   // Return a copy of the object only containing the whitelisted properties.
-  _.pick = function(obj) {
-    var copy = {};
-    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
-    each(keys, function(key) {
-      if (key in obj) copy[key] = obj[key];
-    });
-    return copy;
+  _.pick = function(obj, iteratee, context) {
+    var result = {}, key;
+    if (obj == null) return result;
+    if (_.isFunction(iteratee)) {
+      iteratee = createCallback(iteratee, context);
+      for (key in obj) {
+        var value = obj[key];
+        if (iteratee(value, key, obj)) result[key] = value;
+      }
+    } else {
+      var keys = concat.apply([], slice.call(arguments, 1));
+      obj = new Object(obj);
+      for (var i = 0, length = keys.length; i < length; i++) {
+        key = keys[i];
+        if (key in obj) result[key] = obj[key];
+      }
+    }
+    return result;
   };
 
    // Return a copy of the object without the blacklisted properties.
-  _.omit = function(obj) {
-    var copy = {};
-    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
-    for (var key in obj) {
-      if (!_.contains(keys, key)) copy[key] = obj[key];
+  _.omit = function(obj, iteratee, context) {
+    if (_.isFunction(iteratee)) {
+      iteratee = _.negate(iteratee);
+    } else {
+      var keys = _.map(concat.apply([], slice.call(arguments, 1)), String);
+      iteratee = function(value, key) {
+        return !_.contains(keys, key);
+      };
     }
-    return copy;
+    return _.pick(obj, iteratee, context);
   };
 
   // Fill in a given object with default properties.
   _.defaults = function(obj) {
-    each(slice.call(arguments, 1), function(source) {
-      if (source) {
-        for (var prop in source) {
-          if (obj[prop] === void 0) obj[prop] = source[prop];
-        }
+    if (!_.isObject(obj)) return obj;
+    for (var i = 1, length = arguments.length; i < length; i++) {
+      var source = arguments[i];
+      for (var prop in source) {
+        if (obj[prop] === void 0) obj[prop] = source[prop];
       }
-    });
+    }
     return obj;
   };
 
@@ -25771,7 +28743,7 @@ return Q;
   var eq = function(a, b, aStack, bStack) {
     // Identical objects are equal. `0 === -0`, but they aren't identical.
     // See the [Harmony `egal` proposal](http://wiki.ecmascript.org/doku.php?id=harmony:egal).
-    if (a === b) return a !== 0 || 1 / a == 1 / b;
+    if (a === b) return a !== 0 || 1 / a === 1 / b;
     // A strict comparison is necessary because `null == undefined`.
     if (a == null || b == null) return a === b;
     // Unwrap any wrapped objects.
@@ -25779,29 +28751,27 @@ return Q;
     if (b instanceof _) b = b._wrapped;
     // Compare `[[Class]]` names.
     var className = toString.call(a);
-    if (className != toString.call(b)) return false;
+    if (className !== toString.call(b)) return false;
     switch (className) {
-      // Strings, numbers, dates, and booleans are compared by value.
+      // Strings, numbers, regular expressions, dates, and booleans are compared by value.
+      case '[object RegExp]':
+      // RegExps are coerced to strings for comparison (Note: '' + /a/i === '/a/i')
       case '[object String]':
         // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
         // equivalent to `new String("5")`.
-        return a == String(b);
+        return '' + a === '' + b;
       case '[object Number]':
-        // `NaN`s are equivalent, but non-reflexive. An `egal` comparison is performed for
-        // other numeric values.
-        return a != +a ? b != +b : (a == 0 ? 1 / a == 1 / b : a == +b);
+        // `NaN`s are equivalent, but non-reflexive.
+        // Object(NaN) is equivalent to NaN
+        if (+a !== +a) return +b !== +b;
+        // An `egal` comparison is performed for other numeric values.
+        return +a === 0 ? 1 / +a === 1 / b : +a === +b;
       case '[object Date]':
       case '[object Boolean]':
         // Coerce dates and booleans to numeric primitive values. Dates are compared by their
         // millisecond representations. Note that invalid dates with millisecond representations
         // of `NaN` are not equivalent.
-        return +a == +b;
-      // RegExps are compared by their source patterns and flags.
-      case '[object RegExp]':
-        return a.source == b.source &&
-               a.global == b.global &&
-               a.multiline == b.multiline &&
-               a.ignoreCase == b.ignoreCase;
+        return +a === +b;
     }
     if (typeof a != 'object' || typeof b != 'object') return false;
     // Assume equality for cyclic structures. The algorithm for detecting cyclic
@@ -25810,25 +28780,29 @@ return Q;
     while (length--) {
       // Linear search. Performance is inversely proportional to the number of
       // unique nested structures.
-      if (aStack[length] == a) return bStack[length] == b;
+      if (aStack[length] === a) return bStack[length] === b;
     }
     // Objects with different constructors are not equivalent, but `Object`s
     // from different frames are.
     var aCtor = a.constructor, bCtor = b.constructor;
-    if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
-                             _.isFunction(bCtor) && (bCtor instanceof bCtor))
-                        && ('constructor' in a && 'constructor' in b)) {
+    if (
+      aCtor !== bCtor &&
+      // Handle Object.create(x) cases
+      'constructor' in a && 'constructor' in b &&
+      !(_.isFunction(aCtor) && aCtor instanceof aCtor &&
+        _.isFunction(bCtor) && bCtor instanceof bCtor)
+    ) {
       return false;
     }
     // Add the first object to the stack of traversed objects.
     aStack.push(a);
     bStack.push(b);
-    var size = 0, result = true;
+    var size, result;
     // Recursively compare objects and arrays.
-    if (className == '[object Array]') {
+    if (className === '[object Array]') {
       // Compare array lengths to determine if a deep comparison is necessary.
       size = a.length;
-      result = size == b.length;
+      result = size === b.length;
       if (result) {
         // Deep compare the contents, ignoring non-numeric properties.
         while (size--) {
@@ -25837,20 +28811,16 @@ return Q;
       }
     } else {
       // Deep compare objects.
-      for (var key in a) {
-        if (_.has(a, key)) {
-          // Count the expected number of properties.
-          size++;
-          // Deep compare each member.
+      var keys = _.keys(a), key;
+      size = keys.length;
+      // Ensure that both objects contain the same number of properties before comparing deep equality.
+      result = _.keys(b).length === size;
+      if (result) {
+        while (size--) {
+          // Deep compare each member
+          key = keys[size];
           if (!(result = _.has(b, key) && eq(a[key], b[key], aStack, bStack))) break;
         }
-      }
-      // Ensure that both objects contain the same number of properties.
-      if (result) {
-        for (key in b) {
-          if (_.has(b, key) && !(size--)) break;
-        }
-        result = !size;
       }
     }
     // Remove the first object from the stack of traversed objects.
@@ -25868,7 +28838,7 @@ return Q;
   // An "empty" object has no enumerable own-properties.
   _.isEmpty = function(obj) {
     if (obj == null) return true;
-    if (_.isArray(obj) || _.isString(obj)) return obj.length === 0;
+    if (_.isArray(obj) || _.isString(obj) || _.isArguments(obj)) return obj.length === 0;
     for (var key in obj) if (_.has(obj, key)) return false;
     return true;
   };
@@ -25881,18 +28851,19 @@ return Q;
   // Is a given value an array?
   // Delegates to ECMA5's native Array.isArray
   _.isArray = nativeIsArray || function(obj) {
-    return toString.call(obj) == '[object Array]';
+    return toString.call(obj) === '[object Array]';
   };
 
   // Is a given variable an object?
   _.isObject = function(obj) {
-    return obj === Object(obj);
+    var type = typeof obj;
+    return type === 'function' || type === 'object' && !!obj;
   };
 
   // Add some isType methods: isArguments, isFunction, isString, isNumber, isDate, isRegExp.
-  each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp'], function(name) {
+  _.each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp'], function(name) {
     _['is' + name] = function(obj) {
-      return toString.call(obj) == '[object ' + name + ']';
+      return toString.call(obj) === '[object ' + name + ']';
     };
   });
 
@@ -25900,14 +28871,14 @@ return Q;
   // there isn't any inspectable "Arguments" type.
   if (!_.isArguments(arguments)) {
     _.isArguments = function(obj) {
-      return !!(obj && _.has(obj, 'callee'));
+      return _.has(obj, 'callee');
     };
   }
 
-  // Optimize `isFunction` if appropriate.
-  if (typeof (/./) !== 'function') {
+  // Optimize `isFunction` if appropriate. Work around an IE 11 bug.
+  if (typeof /./ !== 'function') {
     _.isFunction = function(obj) {
-      return typeof obj === 'function';
+      return typeof obj == 'function' || false;
     };
   }
 
@@ -25918,12 +28889,12 @@ return Q;
 
   // Is the given value `NaN`? (NaN is the only number which does not equal itself).
   _.isNaN = function(obj) {
-    return _.isNumber(obj) && obj != +obj;
+    return _.isNumber(obj) && obj !== +obj;
   };
 
   // Is a given value a boolean?
   _.isBoolean = function(obj) {
-    return obj === true || obj === false || toString.call(obj) == '[object Boolean]';
+    return obj === true || obj === false || toString.call(obj) === '[object Boolean]';
   };
 
   // Is a given value equal to null?
@@ -25939,7 +28910,7 @@ return Q;
   // Shortcut function for checking if an object has a given property directly
   // on itself (in other words, not on a prototype).
   _.has = function(obj, key) {
-    return hasOwnProperty.call(obj, key);
+    return obj != null && hasOwnProperty.call(obj, key);
   };
 
   // Utility Functions
@@ -25952,16 +28923,18 @@ return Q;
     return this;
   };
 
-  // Keep the identity function around for default iterators.
+  // Keep the identity function around for default iteratees.
   _.identity = function(value) {
     return value;
   };
 
   _.constant = function(value) {
-    return function () {
+    return function() {
       return value;
     };
   };
+
+  _.noop = function(){};
 
   _.property = function(key) {
     return function(obj) {
@@ -25971,20 +28944,23 @@ return Q;
 
   // Returns a predicate for checking whether an object has a given set of `key:value` pairs.
   _.matches = function(attrs) {
+    var pairs = _.pairs(attrs), length = pairs.length;
     return function(obj) {
-      if (obj === attrs) return true; //avoid comparing an object to itself.
-      for (var key in attrs) {
-        if (attrs[key] !== obj[key])
-          return false;
+      if (obj == null) return !length;
+      obj = new Object(obj);
+      for (var i = 0; i < length; i++) {
+        var pair = pairs[i], key = pair[0];
+        if (pair[1] !== obj[key] || !(key in obj)) return false;
       }
       return true;
-    }
+    };
   };
 
   // Run a function **n** times.
-  _.times = function(n, iterator, context) {
+  _.times = function(n, iteratee, context) {
     var accum = Array(Math.max(0, n));
-    for (var i = 0; i < n; i++) accum[i] = iterator.call(context, i);
+    iteratee = createCallback(iteratee, context, 1);
+    for (var i = 0; i < n; i++) accum[i] = iteratee(i);
     return accum;
   };
 
@@ -25998,54 +28974,44 @@ return Q;
   };
 
   // A (possibly faster) way to get the current timestamp as an integer.
-  _.now = Date.now || function() { return new Date().getTime(); };
-
-  // List of HTML entities for escaping.
-  var entityMap = {
-    escape: {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#x27;'
-    }
+  _.now = Date.now || function() {
+    return new Date().getTime();
   };
-  entityMap.unescape = _.invert(entityMap.escape);
 
-  // Regexes containing the keys and values listed immediately above.
-  var entityRegexes = {
-    escape:   new RegExp('[' + _.keys(entityMap.escape).join('') + ']', 'g'),
-    unescape: new RegExp('(' + _.keys(entityMap.unescape).join('|') + ')', 'g')
+   // List of HTML entities for escaping.
+  var escapeMap = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+    '`': '&#x60;'
   };
+  var unescapeMap = _.invert(escapeMap);
 
   // Functions for escaping and unescaping strings to/from HTML interpolation.
-  _.each(['escape', 'unescape'], function(method) {
-    _[method] = function(string) {
-      if (string == null) return '';
-      return ('' + string).replace(entityRegexes[method], function(match) {
-        return entityMap[method][match];
-      });
+  var createEscaper = function(map) {
+    var escaper = function(match) {
+      return map[match];
     };
-  });
+    // Regexes for identifying a key that needs to be escaped
+    var source = '(?:' + _.keys(map).join('|') + ')';
+    var testRegexp = RegExp(source);
+    var replaceRegexp = RegExp(source, 'g');
+    return function(string) {
+      string = string == null ? '' : '' + string;
+      return testRegexp.test(string) ? string.replace(replaceRegexp, escaper) : string;
+    };
+  };
+  _.escape = createEscaper(escapeMap);
+  _.unescape = createEscaper(unescapeMap);
 
   // If the value of the named `property` is a function then invoke it with the
   // `object` as context; otherwise, return it.
   _.result = function(object, property) {
     if (object == null) return void 0;
     var value = object[property];
-    return _.isFunction(value) ? value.call(object) : value;
-  };
-
-  // Add your own custom functions to the Underscore object.
-  _.mixin = function(obj) {
-    each(_.functions(obj), function(name) {
-      var func = _[name] = obj[name];
-      _.prototype[name] = function() {
-        var args = [this._wrapped];
-        push.apply(args, arguments);
-        return result.call(this, func.apply(_, args));
-      };
-    });
+    return _.isFunction(value) ? object[property]() : value;
   };
 
   // Generate a unique integer id (unique within the entire client session).
@@ -26076,22 +29042,26 @@ return Q;
     '\\':     '\\',
     '\r':     'r',
     '\n':     'n',
-    '\t':     't',
     '\u2028': 'u2028',
     '\u2029': 'u2029'
   };
 
-  var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
+  var escaper = /\\|'|\r|\n|\u2028|\u2029/g;
+
+  var escapeChar = function(match) {
+    return '\\' + escapes[match];
+  };
 
   // JavaScript micro-templating, similar to John Resig's implementation.
   // Underscore templating handles arbitrary delimiters, preserves whitespace,
   // and correctly escapes quotes within interpolated code.
-  _.template = function(text, data, settings) {
-    var render;
+  // NB: `oldSettings` only exists for backwards compatibility.
+  _.template = function(text, settings, oldSettings) {
+    if (!settings && oldSettings) settings = oldSettings;
     settings = _.defaults({}, settings, _.templateSettings);
 
     // Combine delimiters into one regular expression via alternation.
-    var matcher = new RegExp([
+    var matcher = RegExp([
       (settings.escape || noMatch).source,
       (settings.interpolate || noMatch).source,
       (settings.evaluate || noMatch).source
@@ -26101,19 +29071,18 @@ return Q;
     var index = 0;
     var source = "__p+='";
     text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
-      source += text.slice(index, offset)
-        .replace(escaper, function(match) { return '\\' + escapes[match]; });
+      source += text.slice(index, offset).replace(escaper, escapeChar);
+      index = offset + match.length;
 
       if (escape) {
         source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
-      }
-      if (interpolate) {
+      } else if (interpolate) {
         source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
-      }
-      if (evaluate) {
+      } else if (evaluate) {
         source += "';\n" + evaluate + "\n__p+='";
       }
-      index = offset + match.length;
+
+      // Adobe VMs need the match returned to produce the correct offest.
       return match;
     });
     source += "';\n";
@@ -26123,29 +29092,31 @@ return Q;
 
     source = "var __t,__p='',__j=Array.prototype.join," +
       "print=function(){__p+=__j.call(arguments,'');};\n" +
-      source + "return __p;\n";
+      source + 'return __p;\n';
 
     try {
-      render = new Function(settings.variable || 'obj', '_', source);
+      var render = new Function(settings.variable || 'obj', '_', source);
     } catch (e) {
       e.source = source;
       throw e;
     }
 
-    if (data) return render(data, _);
     var template = function(data) {
       return render.call(this, data, _);
     };
 
-    // Provide the compiled function source as a convenience for precompilation.
-    template.source = 'function(' + (settings.variable || 'obj') + '){\n' + source + '}';
+    // Provide the compiled source as a convenience for precompilation.
+    var argument = settings.variable || 'obj';
+    template.source = 'function(' + argument + '){\n' + source + '}';
 
     return template;
   };
 
-  // Add a "chain" function, which will delegate to the wrapper.
+  // Add a "chain" function. Start chaining a wrapped Underscore object.
   _.chain = function(obj) {
-    return _(obj).chain();
+    var instance = _(obj);
+    instance._chain = true;
+    return instance;
   };
 
   // OOP
@@ -26159,42 +29130,44 @@ return Q;
     return this._chain ? _(obj).chain() : obj;
   };
 
+  // Add your own custom functions to the Underscore object.
+  _.mixin = function(obj) {
+    _.each(_.functions(obj), function(name) {
+      var func = _[name] = obj[name];
+      _.prototype[name] = function() {
+        var args = [this._wrapped];
+        push.apply(args, arguments);
+        return result.call(this, func.apply(_, args));
+      };
+    });
+  };
+
   // Add all of the Underscore functions to the wrapper object.
   _.mixin(_);
 
   // Add all mutator Array functions to the wrapper.
-  each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
+  _.each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
     var method = ArrayProto[name];
     _.prototype[name] = function() {
       var obj = this._wrapped;
       method.apply(obj, arguments);
-      if ((name == 'shift' || name == 'splice') && obj.length === 0) delete obj[0];
+      if ((name === 'shift' || name === 'splice') && obj.length === 0) delete obj[0];
       return result.call(this, obj);
     };
   });
 
   // Add all accessor Array functions to the wrapper.
-  each(['concat', 'join', 'slice'], function(name) {
+  _.each(['concat', 'join', 'slice'], function(name) {
     var method = ArrayProto[name];
     _.prototype[name] = function() {
       return result.call(this, method.apply(this._wrapped, arguments));
     };
   });
 
-  _.extend(_.prototype, {
-
-    // Start chaining a wrapped Underscore object.
-    chain: function() {
-      this._chain = true;
-      return this;
-    },
-
-    // Extracts the result from a wrapped and chained object.
-    value: function() {
-      return this._wrapped;
-    }
-
-  });
+  // Extracts the result from a wrapped and chained object.
+  _.prototype.value = function() {
+    return this._wrapped;
+  };
 
   // AMD registration happens at the end for compatibility with AMD loaders
   // that may not enforce next-turn semantics on modules. Even though general
@@ -26208,12 +29181,12 @@ return Q;
       return _;
     });
   }
-}).call(this);
+}.call(this));
 
-},{}],79:[function(require,module,exports){
+},{}],82:[function(require,module,exports){
 module.exports={
   "name": "fielddb",
-  "version": "2.28.0",
+  "version": "2.32.0",
   "description": "An offline/online field database which adapts to its user's terminology and I-Language",
   "homepage": "https://github.com/OpenSourceFieldlinguistics/FieldDB/issues/milestones?state=closed",
   "repository": {
@@ -26251,10 +29224,13 @@ module.exports={
   "dependencies": {
     "MD5": "1.2.1",
     "atob": "^1.1.2",
+    "browserify-mime": "^1.2.9",
     "btoa": "^1.1.2",
     "crypto-js": "^3.1.2-5",
     "diacritic": "0.0.2",
+    "mime": "^1.2.11",
     "q": "1.0.1",
+    "recordmp3js": "~0.2.0",
     "textgrid": "2.2.0",
     "underscore": "^1.6.0"
   },
@@ -26269,6 +29245,7 @@ module.exports={
     "grunt-exec": "^0.4.6",
     "grunt-jasmine-node": "git://github.com/cesine/grunt-jasmine-node.git",
     "grunt-jsdoc": "0.4.3",
+    "grunt-newer": "^0.8.0",
     "jasmine-node": "^1.14.5"
   },
   "main": "./scripts/build_template_databases_using_fielddb.sh",
@@ -26289,5 +29266,5 @@ module.exports={
   ]
 }
 
-},{}]},{},[36])
+},{}]},{},[37])
 ;
