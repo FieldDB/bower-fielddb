@@ -109,7 +109,7 @@ CORS.makeCORSRequest = function(options) {
   //  }
   var onProgress = function(e) {
     if (e.lengthComputable) {
-      var percentComplete = (e.loaded/e.total)*100;
+      var percentComplete = (e.loaded / e.total) * 100;
       console.log("percentComplete", percentComplete);
     }
   };
@@ -120,6 +120,11 @@ CORS.makeCORSRequest = function(options) {
     self.debug("Response from CORS request to " + options.url + ": " + response);
     if (xhr.status >= 400) {
       self.warn("The request to " + options.url + " was unsuccesful " + xhr.statusText);
+      try {
+        response = JSON.parse(response);
+      } catch (e) {
+        self.debug("response was json", e);
+      }
       deferred.reject(response);
       return;
     }
@@ -160,7 +165,7 @@ CORS.makeCORSRequest = function(options) {
 
 exports.CORS = CORS;
 
-},{"q":78}],2:[function(require,module,exports){
+},{"q":80}],2:[function(require,module,exports){
 var Diacritics = require("diacritic");
 var FieldDBObject = require("./FieldDBObject").FieldDBObject;
 
@@ -303,6 +308,11 @@ Collection.prototype = Object.create(Object.prototype, {
   todo: {
     value: function() {
       return FieldDBObject.prototype.todo.apply(this, arguments);
+    }
+  },
+  render: {
+    value: function() {
+      return FieldDBObject.prototype.render.apply(this, arguments);
     }
   },
 
@@ -537,7 +547,15 @@ Collection.prototype = Object.create(Object.prototype, {
 
   add: {
     value: function(value) {
-      if (this.INTERNAL_MODELS && this.INTERNAL_MODELS.item && value && value.constructor !== this.INTERNAL_MODELS.item) {
+      if (Object.prototype.toString.call(value) === "[object Array]") {
+        var self = this;
+        value.map(function(item) {
+          self.add(item);
+        });
+        return;
+      }
+
+      if (this.INTERNAL_MODELS && this.INTERNAL_MODELS.item && value && !(value instanceof this.INTERNAL_MODELS.item)) {
         // console.log("adding a internamodel ", value);
         if (!this.INTERNAL_MODELS.item.fieldDBtype || this.INTERNAL_MODELS.item.fieldDBtype !== "Document") {
           this.debug("casting an item to match the internal model", this.INTERNAL_MODELS.item, value);
@@ -553,8 +571,8 @@ Collection.prototype = Object.create(Object.prototype, {
       }
       var dotNotationKey = this.getSanitizedDotNotationKey(value);
       if (!dotNotationKey) {
-        this.warn("The primary key " + this.primaryKey + " is undefined on this object, it cannot be added! ", value);
-        throw "The primary key is undefined on this object, it cannot be added! " + value;
+        this.warn("The primary key `" + this.primaryKey + "` is undefined on this object, it cannot be added! ", value);
+        throw "The primary key `" + this.primaryKey + "` is undefined on this object, it cannot be added! " + value.fieldDBtype;
       }
       this.debug("adding " + dotNotationKey);
       this.set(dotNotationKey, value);
@@ -803,6 +821,38 @@ Collection.prototype = Object.create(Object.prototype, {
     }
   },
 
+  equals: {
+    value: function(anotherCollection) {
+      if (!anotherCollection) {
+        return false;
+      }
+      if (!this._collection && !anotherCollection._collection) {
+        return true;
+      }
+
+      if (!this._collection || !anotherCollection._collection) {
+        return false;
+      }
+
+      if (this._collection.length !== anotherCollection._collection.length) {
+        return false;
+      }
+      // this.debugMode = true;
+      for (var itemIndex = this._collection.length - 1; itemIndex >= 0; itemIndex--) {
+        var itemInThisCollection = this._collection[itemIndex];
+        var itemInAnotherCollection = anotherCollection.find(itemInThisCollection[anotherCollection.primaryKey])[0];
+        this.debug("Are these equal ", itemInThisCollection, itemInAnotherCollection);
+        // itemInThisCollection.debugMode = true;
+        if (!itemInThisCollection.equals(itemInAnotherCollection)) {
+          return false;
+        }
+      }
+      // this.debugMode = false;
+
+      return true;
+    }
+  },
+
   merge: {
     value: function(callOnSelf, anotherCollection, optionalOverwriteOrAsk) {
       var aCollection,
@@ -1008,15 +1058,19 @@ Collection.prototype = Object.create(Object.prototype, {
         });
       }
     }
+  },
+
+  INTERNAL_MODELS: {
+    value: {
+      item: FieldDBObject
+    }
   }
-
-
 
 });
 
 exports.Collection = Collection;
 
-},{"./FieldDBObject":4,"diacritic":77}],3:[function(require,module,exports){
+},{"./FieldDBObject":4,"diacritic":79}],3:[function(require,module,exports){
 var Q = require("q");
 var CORS = require("./CORS").CORS;
 
@@ -1166,7 +1220,7 @@ if (exports) {
   exports.FieldDBConnection = FieldDBConnection;
 }
 
-},{"./CORS":1,"q":78}],4:[function(require,module,exports){
+},{"./CORS":1,"q":80}],4:[function(require,module,exports){
 var process=require("__browserify_process");/* globals alert, confirm, navigator, Android */
 var CORS = require("./CORS").CORS;
 var Diacritics = require("diacritic");
@@ -1251,6 +1305,9 @@ var FieldDBObject = function FieldDBObject(json) {
   if (!this._fieldDBtype) {
     this._fieldDBtype = "FieldDBObject";
   }
+  if (json && json.id) {
+    this.useIdNotUnderscore = true;
+  }
   this.verbose("In parent an json", json);
   // Set the confidential first, so the rest of the fields can be encrypted
   if (json && json.confidential && this.INTERNAL_MODELS["confidential"]) {
@@ -1288,11 +1345,6 @@ var FieldDBObject = function FieldDBObject(json) {
     this.dateCreated = Date.now();
   }
 
-  if (!this.render) {
-    this.render = function(options) {
-      this.warn("Rendering, but the render was not injected for this " + this.fieldDBtype, options);
-    };
-  }
 };
 
 FieldDBObject.software = {};
@@ -1304,6 +1356,10 @@ FieldDBObject.DEFAULT_ARRAY = [];
 FieldDBObject.DEFAULT_COLLECTION = [];
 FieldDBObject.DEFAULT_VERSION = "v" + package.version;
 FieldDBObject.DEFAULT_DATE = 0;
+
+FieldDBObject.render = function(options) {
+  this.warn("Rendering, but the render was not injected for this " + this.fieldDBtype, options);
+};
 
 FieldDBObject.bug = function(message) {
   try {
@@ -1567,6 +1623,14 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
     }
   },
 
+  render: {
+    configurable: true,
+    value: function(options) {
+      this.debug("Calling render with options", options);
+      FieldDBObject.render.apply(this, arguments);
+    }
+  },
+
   save: {
     value: function(optionalUserWhoSaved) {
       var deferred = Q.defer(),
@@ -1574,10 +1638,16 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
 
       if (this.fetching) {
         self.warn("Fetching is in process, can't save right now...");
+        Q.nextText(function() {
+          deferred.reject("Fetching is in process, can't save right now...");
+        });
         return;
       }
       if (this.saving) {
         self.warn("Save was already in process...");
+        Q.nextText(function() {
+          deferred.reject("Fetching is in process, can't save right now...");
+        });
         return;
       }
       this.saving = true;
@@ -1657,6 +1727,14 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       }
       // optionalUserWhoSaved.browser = browser;
 
+      var userWhoSaved = {
+        username: optionalUserWhoSaved.username,
+        name: optionalUserWhoSaved.name,
+        lastname: optionalUserWhoSaved.lastname,
+        firstname: optionalUserWhoSaved.firstname,
+        gravatar: optionalUserWhoSaved.gravatar
+      };
+
       if (!this._rev) {
         this._dateCreated = Date.now();
         var enteredByUser = this.enteredByUser || {};
@@ -1665,9 +1743,9 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
         } else if (!this.enteredByUser) {
           this.enteredByUser = enteredByUser;
         }
-        enteredByUser.value = optionalUserWhoSaved.name || optionalUserWhoSaved.username;
+        enteredByUser.value = userWhoSaved.name || userWhoSaved.username;
         enteredByUser.json = enteredByUser.json || {};
-        enteredByUser.json.user = optionalUserWhoSaved;
+        enteredByUser.json.user = userWhoSaved;
         enteredByUser.json.software = FieldDBObject.software;
         try {
           enteredByUser.json.hardware = Android ? Android.deviceDetails : FieldDBObject.hardware;
@@ -1695,16 +1773,16 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
         }
 
         modifiedByUser.value = modifiedByUser.value ? modifiedByUser.value + ", " : "";
-        modifiedByUser.value += optionalUserWhoSaved.name || optionalUserWhoSaved.username;
+        modifiedByUser.value += userWhoSaved.name || userWhoSaved.username;
         modifiedByUser.json = modifiedByUser.json || {};
         if (modifiedByUser.users) {
           modifiedByUser.json.users = modifiedByUser.users;
           delete modifiedByUser.users;
         }
         modifiedByUser.json.users = modifiedByUser.json.users || [];
-        optionalUserWhoSaved.software = FieldDBObject.software;
-        optionalUserWhoSaved.hardware = FieldDBObject.hardware;
-        modifiedByUser.json.users.push(optionalUserWhoSaved);
+        userWhoSaved.software = FieldDBObject.software;
+        userWhoSaved.hardware = FieldDBObject.hardware;
+        modifiedByUser.json.users.push(userWhoSaved);
       }
 
       if (FieldDBObject.software && FieldDBObject.software.location) {
@@ -1812,7 +1890,7 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
         }
         if /* use fielddb equality function first */ (this[aproperty] && typeof this[aproperty].equals === "function") {
           if (!this[aproperty].equals(anotherObject[aproperty])) {
-            this.debug("  " + aproperty + ": ", this[aproperty], " not equal ", anotherObject[aproperty]);
+            this.debug("  " + aproperty + ": ", this[aproperty], " not equalivalent to ", anotherObject[aproperty]);
             return false;
           }
         } /* then try normal equality */
@@ -1823,8 +1901,8 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
         else if (JSON.stringify(this[aproperty]) === JSON.stringify(anotherObject[aproperty])) {
           this.debug(aproperty + ": " + this[aproperty] + " equals " + anotherObject[aproperty]);
           // return true;
-        } else if (anotherObject[aproperty] === undefined) {
-          this.debug(aproperty + ": " + this[aproperty] + " not equal " + anotherObject[aproperty]);
+        } else if (anotherObject[aproperty] === undefined && (aproperty !== "_dateCreated" && aproperty !== "perObjectDebugMode")) {
+          this.debug(aproperty + " is missing " + this[aproperty] + " on anotherObject " + anotherObject[aproperty]);
           return false;
         } else {
           if (aproperty !== "_dateCreated" && aproperty !== "perObjectDebugMode") {
@@ -2225,6 +2303,10 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       /* force id to be set if possible */
       // this.id = this.id;
 
+      if (this.useIdNotUnderscore) {
+        json.id = this.id;
+      }
+
       for (aproperty in this) {
         if (this.hasOwnProperty(aproperty) && typeof this[aproperty] !== "function") {
           underscorelessProperty = aproperty.replace(/^_/, "");
@@ -2257,6 +2339,10 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       if (!json._id) {
         delete json._id;
       }
+      if (this.useIdNotUnderscore) {
+        delete json._id;
+      }
+
       if (!json._rev) {
         delete json._rev;
       }
@@ -2268,6 +2354,7 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       delete json.saving;
       delete json.fetching;
       delete json.loaded;
+      delete json.useIdNotUnderscore;
       delete json.decryptedMode;
       delete json.bugMessage;
       delete json.warnMessage;
@@ -2275,7 +2362,7 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       delete json.perObjectAlwaysConfirmOkay;
       delete json.application;
       delete json.contextualizer;
-      if (this._collection !== "private_corpuses") {
+      if (this.collection !== "private_corpuses") {
         delete json.confidential;
         delete json.confidentialEncrypter;
       } else {
@@ -2328,6 +2415,10 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       var source = json._id;
       if (json._rev) {
         source = source + "?rev=" + json._rev;
+      } else {
+        if (this.parent && this.parent._rev) {
+          source = this.parent._id + "?rev=" + this.parent._rev;
+        }
       }
       relatedData.push({
         URI: source,
@@ -2337,6 +2428,7 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
       /* Clear the current object's info which we shouldnt clone */
       delete json._id;
       delete json._rev;
+      delete json.parent;
 
       return json;
     }
@@ -2416,7 +2508,7 @@ FieldDBObject.prototype = Object.create(Object.prototype, {
 
 exports.FieldDBObject = FieldDBObject;
 
-},{"./../package.json":82,"./CORS":1,"__browserify_process":66,"diacritic":77,"q":78}],5:[function(require,module,exports){
+},{"./../package.json":84,"./CORS":1,"__browserify_process":68,"diacritic":79,"q":80}],5:[function(require,module,exports){
 var Router = Router || {};
 
 Router.routes = Router.routes || [];
@@ -4208,7 +4300,7 @@ App.prototype = Object.create(FieldDBObject.prototype, /** @lends App.prototype 
 });
 exports.App = App;
 
-},{"./../FieldDBObject":4,"./../Router":5,"./../activity/Activity":6,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../import/Import":42,"./../locales/Contextualizer":44,"./../search/Search":49,"./../user/Team":55,"./../user/User":56,"./../user/UserMask":57,"q":78}],8:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../Router":5,"./../activity/Activity":6,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../import/Import":42,"./../locales/Contextualizer":44,"./../search/Search":50,"./../user/Team":56,"./../user/User":57,"./../user/UserMask":58,"q":80}],8:[function(require,module,exports){
 var App = require("./App").App;
 
 /**
@@ -4564,7 +4656,7 @@ AudioVideo.prototype = Object.create(FieldDBObject.prototype, /** @lends AudioVi
 });
 exports.AudioVideo = AudioVideo;
 
-},{"./../FieldDBObject":4,"./AudioPlayer":9,"browserify-mime":64}],11:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./AudioPlayer":9,"browserify-mime":66}],11:[function(require,module,exports){
 /* globals document, window, navigator, FieldDB, Media, FileReader */
 var Q = require("q");
 var RecordMP3 = require("recordmp3js/js/recordmp3");
@@ -4711,6 +4803,11 @@ AudioVideoRecorder.prototype = Object.create(Object.prototype, /** @lends AudioV
       };
 
       Q.nextTick(function() {
+        if(self.peripheralsCheckRunning){
+          deferred.reject("Already running");
+          return;
+        }
+        self.peripheralsCheckRunning = true;
 
         var waitUntilVideoElementIsRendered = function() {
           if (!optionalElements) {
@@ -4743,8 +4840,8 @@ AudioVideoRecorder.prototype = Object.create(Object.prototype, /** @lends AudioV
               optionalElements.video.src = window.URL.createObjectURL(localMediaStream);
             } else {
               self.type = "audio";
-              optionalElements.audio.removeAttribute("hidden");
-              optionalElements.audio.removeAttribute("class");
+              // optionalElements.audio.removeAttribute("hidden");
+              // optionalElements.audio.removeAttribute("class");
               optionalElements.audio.src = window.URL.createObjectURL(localMediaStream);
             }
 
@@ -4904,14 +5001,17 @@ AudioVideoRecorder.prototype = Object.create(Object.prototype, /** @lends AudioV
           // Add audio element and download URL to page.
           var showAudioArea = document.createElement("p");
           var au = document.createElement("audio");
+          au.classList = ["fielddb-audio-temp-play-audio"];
           var hf = document.createElement("a");
-
+          hf.classList = ["fielddb-audio-temp-save-link"];
+          hf.innerText = "Save to this device";
           au.controls = true;
           au.src = url;
           hf.href = url;
           hf.download = mp3Name;
           hf.innerHTML = mp3Name;
           showAudioArea.appendChild(au);
+          au.play();
           showAudioArea.appendChild(hf);
           console.log("todo dont need to append this audio after upload");
 
@@ -4958,7 +5058,7 @@ try {
 
 exports.AudioVideoRecorder = AudioVideoRecorder;
 
-},{"q":78,"recordmp3js/js/recordmp3":79}],12:[function(require,module,exports){
+},{"q":80,"recordmp3js/js/recordmp3":81}],12:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var AudioVideo = require("./AudioVideo").AudioVideo;
 
@@ -5580,10 +5680,11 @@ Confidential.prototype = Object.create(FieldDBObject.prototype, /** @lends Confi
 
 exports.Confidential = Confidential;
 
-},{"./../FieldDBObject":4,"atob":63,"btoa":67,"crypto-js/aes":68,"crypto-js/enc-utf8":72}],17:[function(require,module,exports){
+},{"./../FieldDBObject":4,"atob":65,"btoa":69,"crypto-js/aes":70,"crypto-js/enc-utf8":74}],17:[function(require,module,exports){
 /* global window, OPrime */
 var CorpusMask = require("./CorpusMask").CorpusMask;
 var Datum = require("./../datum/Datum").Datum;
+var DatumField = require("./../datum/DatumField").DatumField;
 var DatumFields = require("./../datum/DatumFields").DatumFields;
 var Session = require("./../FieldDBObject").FieldDBObject;
 var Speaker = require("./../user/Speaker").Speaker;
@@ -5675,9 +5776,11 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
   couchConnection: {
     get: function() {
       this.debug("couchConnection is deprecated");
+      return this._couchConnection;
     },
-    set: function() {
+    set: function(value) {
       this.debug("couchConnection is deprecated");
+      this._couchConnection = value;
     }
   },
 
@@ -5785,7 +5888,7 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
         return;
       } else {
         if (Object.prototype.toString.call(value) === "[object Array]") {
-          value = new this.INTERNAL_MODELS["sessionFields"](value);
+          value = new this.INTERNAL_MODELS["sessions"](value);
         }
       }
       this.unserializedSessions = value;
@@ -5846,33 +5949,35 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
     }
   },
 
-  teamExternalObject: {
-    value: null
-  },
+  /**
+   * TODO decide if we want to fetch these from the server, and keep a fossil in the object?
+   * @type {Object}
+   */
   team: {
     get: function() {
-      return this.teamExternalObject;
+      return this._team;
     },
     set: function(value) {
-      if (value === this.teamExternalObject) {
+      if (value === this._team) {
         return;
       }
-      this.teamExternalObject = value;
+      this._team = value;
     }
   },
 
-  publicSelfExternalObject: {
-    value: null
-  },
+  /**
+   * TODO decide if we want to fetch these from the server, and keep a fossil in the object?
+   * @type {Object}
+   */
   publicSelf: {
     get: function() {
-      return this.publicSelfExternalObject;
+      return this._publicSelf;
     },
     set: function(value) {
-      if (value === this.publicSelfExternalObject) {
+      if (value === this._publicSelf) {
         return;
       }
-      this.publicSelfExternalObject = value;
+      this._publicSelf = value;
     }
   },
 
@@ -6251,6 +6356,18 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
     }
   },
 
+  newDatumField: {
+    value: function(field) {
+      if (!field.id && field.label) {
+        field.id = field.label;
+      }
+      if (!(field instanceof DatumField)) {
+        field = new DatumField(field);
+      }
+      this.datumFields.add(field);
+    }
+  },
+
   newSpeaker: {
     value: function(options) {
       var deferred = Q.defer(),
@@ -6416,6 +6533,101 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
       });
 
       return deferred.promise;
+    }
+  },
+
+  /**
+   *  This function looks for the field's details from the corpus fields, if it exists it returns that field template.
+   *
+   * If the field isnt in the corpus' fields exactly, it looks for fields which this field should map to (eg, if the field is codepermanent it can be mapped to anonymouscode)
+   * @param  {String/Object} field A datumField to look for, or the label/id of a datum field to look for.
+   * @return {DatumField}       A datum field with details filled in from the corresponding field in the corpus, or from a template.
+   */
+  normalizeFieldWithExistingCorpusFields: {
+    value: function(field) {
+      if (field && typeof field.trim === "function") {
+        field = field.trim();
+      }
+      if (field === undefined || field === null || field === "") {
+        return;
+      }
+      var incomingLabel = field.id || field.label || field;
+      var fuzzyLabel = incomingLabel.toLowerCase().replace(/[^a-z]/g, "");
+      var allFields = new DatumFields();
+      if (this.datumFields && this.datumFields.length > 0) {
+        allFields.add(this.datumFields.toJSON());
+      } else {
+        allFields.add(DEFAULT_CORPUS_MODEL.datumFields);
+      }
+      if (this.participantFields && this.participantFields.length > 0) {
+        allFields.add(this.participantFields.toJSON());
+      } else {
+        allFields.add(DEFAULT_CORPUS_MODEL.participantFields);
+      }
+      var correspondingDatumField = allFields.find(field, null, true);
+      /* if there is no corresponding field yet in the allFields, then maybe there is a field which is normalized to this label */
+      if (!correspondingDatumField || correspondingDatumField.length === 0) {
+        if (fuzzyLabel.indexOf("checkedwith") > -1 || fuzzyLabel.indexOf("checkedby") > -1 || fuzzyLabel.indexOf("publishedin") > -1) {
+          correspondingDatumField = allFields.find("validationStatus");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        } else if (fuzzyLabel.indexOf("codepermanent") > -1) {
+          correspondingDatumField = allFields.find("anonymouscode");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        } else if (fuzzyLabel.indexOf("nsection") > -1) {
+          correspondingDatumField = allFields.find("courseNumber");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        } else if (fuzzyLabel.indexOf("prenom") > -1 || fuzzyLabel.indexOf("prnom") > -1) {
+          correspondingDatumField = allFields.find("firstname");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        } else if (fuzzyLabel.indexOf("nomdefamille") > -1) {
+          correspondingDatumField = allFields.find("lastname");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        } else if (fuzzyLabel.indexOf("datedenaissance") > -1) {
+          correspondingDatumField = allFields.find("dateofbirth");
+          if (correspondingDatumField.length > 0) {
+            this.debug("This header matches an existing corpus field. ", correspondingDatumField);
+            correspondingDatumField[0].labelFieldLinguists = field.labelFieldLinguists || incomingLabel;
+            correspondingDatumField[0].labelExperimenters = field.labelExperimenters || incomingLabel;
+          }
+        }
+
+      }
+
+      /* if the field is still not defined inthe corpus, construct a blank field with this label */
+      if (!correspondingDatumField || correspondingDatumField.length === 0) {
+        correspondingDatumField = [new DatumField(DatumField.prototype.defaults)];
+        correspondingDatumField[0].id = incomingLabel;
+        correspondingDatumField[0].labelExperimenters = incomingLabel;
+        correspondingDatumField[0].labelFieldLinguists = incomingLabel;
+        allFields.add(correspondingDatumField[0]);
+      }
+      if (correspondingDatumField && correspondingDatumField[0]) {
+        correspondingDatumField = correspondingDatumField[0];
+      }
+
+      this.debug("correspondingDatumField ", correspondingDatumField);
+
+      return new DatumField(correspondingDatumField);
     }
   },
 
@@ -6817,7 +7029,7 @@ Corpus.prototype = Object.create(CorpusMask.prototype, /** @lends Corpus.prototy
 exports.Corpus = Corpus;
 exports.FieldDatabase = Corpus;
 
-},{"./../Collection":2,"./../FieldDBObject":4,"./../datum/Datum":25,"./../datum/DatumFields":27,"./../user/Speaker":54,"./CorpusMask":18,"./corpus.json":21,"./psycholinguistics-corpus.json":22,"q":78}],18:[function(require,module,exports){
+},{"./../Collection":2,"./../FieldDBObject":4,"./../datum/Datum":25,"./../datum/DatumField":26,"./../datum/DatumFields":27,"./../user/Speaker":55,"./CorpusMask":18,"./corpus.json":21,"./psycholinguistics-corpus.json":22,"q":80}],18:[function(require,module,exports){
 var Confidential = require("./../confidentiality_encryption/Confidential").Confidential;
 var Database = require("./Database").Database;
 var DatumFields = require("./../datum/DatumFields").DatumFields;
@@ -7099,7 +7311,12 @@ CorpusMask.prototype = Object.create(Database.prototype, /** @lends CorpusMask.p
   preferredDatumTemplate: {
     get: function() {
       if (this.prefs && this.prefs.preferredDatumTemplate) {
-        return this.prefs.preferredDatumTemplate;
+        var upgradeSucess = this.upgradeCorpusFieldsToMatchDatumTemplate(this.prefs.preferredDatumTemplate);
+        if (!upgradeSucess) {
+          return this.prefs.preferredDatumTemplate;
+        } else {
+          this.warn("preferredDatumTemplate is no longer needed");
+        }
       }
     },
     set: function(value) {
@@ -7113,7 +7330,79 @@ CorpusMask.prototype = Object.create(Database.prototype, /** @lends CorpusMask.p
         return;
       }
       this.prefs = this.prefs || new this.INTERNAL_MODELS["prefs"]();
-      this.prefs.preferredDatumTemplate = value.trim();
+      var upgradeSucess = this.upgradeCorpusFieldsToMatchDatumTemplate(value.trim());
+      if (!upgradeSucess) {
+        this.prefs.preferredDatumTemplate = value.trim();
+      } else {
+        this.warn("preferredDatumTemplate is no longer needed");
+      }
+    }
+  },
+
+  upgradeCorpusFieldsToMatchDatumTemplate: {
+    value: function(value) {
+      if (this.preferredDatumTemplateAtVersion) {
+        return true;
+      }
+      if (!this.datumFields.reorder) {
+        this.warn("could not upgrade corpus fields order to match data entry template for the spreadsheet app ");
+        return false;
+      }
+      this.preferredDatumTemplateAtVersion = this.version;
+      this.preferredDatumTemplate = null;
+
+      var order = ["judgement", "utterance", "morphemes", "gloss", "translation", "validationStatus", "tags"];
+      if (value === "compacttemplate") {
+        order = ["judgement", "utterance", "morphemes", "gloss", "translation"];
+
+      } else if (value === "fulltemplate") {
+        order = ["judgement", "utterance", "morphemes", "gloss", "translation", "validationStatus", "tags"];
+
+      } else if (value === "mcgillfieldmethodsspring2014template") {
+        order = ["judgement", "utterance", "morphemes", "gloss", "translation", "validationStatus", "tags"];
+
+      } else if (value === "mcgillfieldmethodsfall2014template") {
+        order = ["judgement", "utterance", "morphemes", "gloss", "translation", "phonetic", "notes"];
+
+      } else if (value === "yalefieldmethodsspring2014template") {
+        order = ["judgement", "orthography", "utterance", "morphemes", "gloss", "translation", "spanish", "Housekeeping", "tags"];
+        this.prefs.fullTemplateDefaultNumberOfFieldsPerColumn = 4;
+      }
+
+
+      var fieldTemplate = {
+        "label": "",
+        "shouldBeEncrypted": false,
+        "showToUserTypes": "all",
+        "defaultfield": false,
+        "value": "",
+        "mask": "",
+        "json": {},
+        "help": "You can add help/conventions here which explain what this data entry field is for your teammates."
+      };
+      for (var expectedPosition = 0; expectedPosition < order.length; expectedPosition++) {
+        var currentPosition = this.datumFields.indexOf(order[expectedPosition]);
+        if (currentPosition === -1) {
+          var newField = JSON.parse(JSON.stringify(fieldTemplate));
+          // newField.id = order[expectedPosition];
+          newField.label = order[expectedPosition];
+          this.datumFields.add(newField);
+          currentPosition = this.datumFields.length - 1;
+        }
+        if (currentPosition === expectedPosition) {
+          this.debug(order[expectedPosition] + " Field was in the correct order. ");
+        } else {
+          this.debug(currentPosition + " moving to" + expectedPosition);
+
+          this.datumFields.reorder(currentPosition, expectedPosition);
+        }
+      }
+      var resultingOrder = this.datumFields.map(function(field) {
+        return field.id;
+      });
+      this.warn("reordered fields to " + resultingOrder);
+
+      return true;
     }
   },
 
@@ -7173,8 +7462,8 @@ CorpusMask.prototype = Object.create(Database.prototype, /** @lends CorpusMask.p
 });
 exports.CorpusMask = CorpusMask;
 
-},{"./../Collection":2,"./../FieldDBObject":4,"./../comment/Comments":15,"./../confidentiality_encryption/Confidential":16,"./../datum/DatumFields":27,"./../datum/DatumStates":29,"./../datum/DatumTags":31,"./../user/UserPreference":58,"./Database":19,"./corpus.json":21}],19:[function(require,module,exports){
-/* globals localStorage */
+},{"./../Collection":2,"./../FieldDBObject":4,"./../comment/Comments":15,"./../confidentiality_encryption/Confidential":16,"./../datum/DatumFields":27,"./../datum/DatumStates":29,"./../datum/DatumTags":31,"./../user/UserPreference":59,"./Database":19,"./corpus.json":21}],19:[function(require,module,exports){
+/* globals localStorage, window */
 
 var Q = require("q");
 var CORS = require("../CORS").CORS;
@@ -7428,7 +7717,8 @@ Database.prototype = Object.create(FieldDBObject.prototype, /** @lends Database.
       try {
         connectionInfo = localStorage.getItem("_connectionInfo");
       } catch (e) {
-        this.warn("Localstorage is not available, using the object there will be no persistance across loads", e, this._connectionInfo);
+        this.warn("Localstorage is not available, using the object there will be no persistance across loads");
+        this.debug("Localstorage is not available, using the object there will be no persistance across loads", e, this._connectionInfo);
         connectionInfo = this._connectionInfo;
       }
       if (!connectionInfo) {
@@ -7467,6 +7757,119 @@ Database.prototype = Object.create(FieldDBObject.prototype, /** @lends Database.
     }
   },
 
+  /*
+   * This function is the same in all webservicesconfig, now any couchapp can
+   * login to any server, and register on the corpus server which matches its
+   * origin.
+   */
+  defaultCouchConnection: {
+    value: function() {
+      var localhost = {
+        protocol: "https://",
+        domain: "localhost",
+        port: "6984",
+        pouchname: "default",
+        path: "",
+        authUrl: "https://localhost:3183",
+        userFriendlyServerName: "Localhost"
+      };
+      var testing = {
+        protocol: "https://",
+        domain: "corpusdev.lingsync.org",
+        port: "443",
+        pouchname: "default",
+        path: "",
+        authUrl: "https://authdev.lingsync.org",
+        userFriendlyServerName: "LingSync Beta"
+      };
+      var production = {
+        protocol: "https://",
+        domain: "corpus.lingsync.org",
+        port: "443",
+        pouchname: "default",
+        path: "",
+        authUrl: "https://auth.lingsync.org",
+        userFriendlyServerName: "LingSync.org"
+      };
+      //v1.90 all users are on production
+      testing = production;
+
+      var mcgill = {
+        protocol: "https://",
+        domain: "corpus.lingsync.org",
+        port: "443",
+        pouchname: "default",
+        path: "",
+        authUrl: "https://auth.lingsync.org",
+        userFriendlyServerName: "McGill ProsodyLab"
+      };
+
+      /*
+       * If its a couch app, it can only contact databases on its same origin, so
+       * modify the domain to be that origin. the chrome extension can contact any
+       * authorized server that is authorized in the chrome app's manifest
+       */
+      var connection = production;
+
+      if (window.location.origin.indexOf("_design/pages") > -1) {
+        if (window.location.origin.indexOf("corpusdev.lingsync.org") >= 0) {
+          connection = testing;
+        } else if (window.location.origin.indexOf("lingsync.org") >= 0) {
+          connection = production;
+        } else if (window.location.origin.indexOf("prosody.linguistics.mcgill") >= 0) {
+          connection = mcgill;
+        } else if (window.location.origin.indexOf("localhost") >= 0) {
+          connection = localhost;
+        }
+      } else {
+        if (window.location.origin.indexOf("jlbnogfhkigoniojfngfcglhphldldgi") >= 0) {
+          connection = mcgill;
+        } else if (window.location.origin.indexOf("eeipnabdeimobhlkfaiohienhibfcfpa") >= 0) {
+          connection = testing;
+        } else if (window.location.origin.indexOf("ocmdknddgpmjngkhcbcofoogkommjfoj") >= 0) {
+          connection = production;
+        }
+      }
+      return connection;
+    }
+  },
+
+  getCouchUrl: {
+    value: function(couchConnection, couchdbcommand) {
+      if (!couchConnection) {
+        couchConnection = this.defaultCouchConnection();
+        this.debug("Using the apps couchConnection", couchConnection);
+      }
+
+      var couchurl = couchConnection.protocol + couchConnection.domain;
+      if (couchConnection.port && couchConnection.port !== "443" && couchConnection.port !== "80") {
+        couchurl = couchurl + ":" + couchConnection.port;
+      }
+      if (!couchConnection.path) {
+        couchConnection.path = "";
+      }
+      couchurl = couchurl + couchConnection.path;
+      if (couchdbcommand === null || couchdbcommand === undefined) {
+        couchurl = couchurl + "/" + couchConnection.pouchname;
+      } else {
+        couchurl = couchurl + couchdbcommand;
+      }
+
+
+      /* Switch user to the new dev servers if they have the old ones */
+      couchurl = couchurl.replace(/ifielddevs.iriscouch.com/g, "corpus.lingsync.org");
+      couchurl = couchurl.replace(/corpusdev.lingsync.org/g, "corpus.lingsync.org");
+
+      /*
+       * For debugging cors #838: Switch to use the corsproxy corpus service instead
+       * of couchdb directly
+       */
+      // couchurl = couchurl.replace(/https/g,"http").replace(/6984/g,"3186");
+
+      return couchurl;
+    }
+  },
+
   login: {
     value: function(loginDetails) {
       var deferred = Q.defer(),
@@ -7487,26 +7890,57 @@ Database.prototype = Object.create(FieldDBObject.prototype, /** @lends Database.
         dataType: "json",
         url: authUrl + "/login",
         data: loginDetails
-      }).then(function(result) {
-          if (result.user) {
-            CORS.makeCORSRequest({
-              type: "POST",
-              dataType: "json",
-              url: baseUrl + "/_session",
-              data: {
-                name: result.user.username,
-                password: loginDetails.password
-              }
-            }).then(function(sessionInfo) {
-              // self.debug(sessionInfo);
-              result.user.roles = sessionInfo.roles;
-              deferred.resolve(result.user);
-            }, function() {
-              self.debug("Failed to login ");
-              deferred.reject("Something is wrong.");
+      }).then(function(authserverResult) {
+          if (authserverResult.user) {
+            var corpusServerURLs = [];
+            if (authserverResult.user.corpuses && authserverResult.user.corpuses[0]) {
+              authserverResult.user.corpuses.map(function(corpusConnection) {
+                var url = self.getCouchUrl(corpusConnection, "/_session");
+                if (!self.dbname && corpusServerURLs.indexOf(url) === -1) {
+                  corpusServerURLs.push(url);
+                } else if (self.dbname && corpusConnection.pouchname === self.dbname && corpusServerURLs.indexOf(url) === -1) {
+                  corpusServerURLs.push(url);
+                }
+              });
+            }
+            if (corpusServerURLs.length < 1) {
+              corpusServerURLs = [baseUrl + "/_session"];
+            }
+            var promises = [];
+            authserverResult.user.roles = [];
+            for (var corpusUrlIndex = 0; corpusUrlIndex < corpusServerURLs.length; corpusUrlIndex++) {
+              promises.push(CORS.makeCORSRequest({
+                type: "POST",
+                dataType: "json",
+                url: corpusServerURLs[corpusUrlIndex],
+                data: {
+                  name: authserverResult.user.username,
+                  password: loginDetails.password
+                }
+              }));
+            }
+
+            Q.allSettled(promises).then(function(results) {
+              results.map(function(result) {
+                if (result.state === "fulfilled") {
+                  authserverResult.user.roles = authserverResult.user.roles.concat(result.value.roles);
+                } else {
+                  self.debug("Failed to login to one of the users's corpus servers ", result);
+                }
+              });
+              deferred.resolve(authserverResult.user);
             });
+
+            // .then(function(sessionInfo) {
+            //   // self.debug(sessionInfo);
+            //   result.user.roles = sessionInfo.roles;
+            //   deferred.resolve(result.user);
+            // }, function() {
+            //   self.debug("Failed to login ");
+            //   deferred.reject("Something is wrong.");
+            // });
           } else {
-            deferred.reject(result.userFriendlyErrors.join(" "));
+            deferred.reject(authserverResult.userFriendlyErrors.join(" "));
           }
         },
         function(reason) {
@@ -7613,7 +8047,7 @@ Database.prototype = Object.create(FieldDBObject.prototype, /** @lends Database.
 
 exports.Database = Database;
 
-},{"../CORS":1,"../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"q":78}],20:[function(require,module,exports){
+},{"../CORS":1,"../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"q":80}],20:[function(require,module,exports){
 var FieldDBDatabase = require("./Database").Database;
 
 var PsycholinguisticsDatabase = function PsycholinguisticsDatabase(options) {
@@ -7751,7 +8185,7 @@ module.exports={
     "helpLinguists": "Many teams will only use the utterance line. However if your team needs to distinguish between utterance and orthography this is the unparsed word/sentence/dialog/paragraph/document in the language, in its native orthography. If there are more than one orthography an additional field can be added to the corpus. This is Line 0 in your LaTeXed examples for handouts (if you distinguish the orthography from the utterance line and you choose to display the orthography for your language consultants and/or native speaker linguists). Sample entry: amigas"
   }, {
     "id": "utterance",
-    "labelFieldLinguists": "Utterance",
+    "labelFieldLinguists": "Transcription",
     "labelNonLinguists": "International Phonetic Alphabet (IPA)",
     "labelTranslators": "Transliteration",
     "type": "IGT, parallelText",
@@ -8648,7 +9082,7 @@ DataList.prototype = Object.create(FieldDBObject.prototype, /** @lends DataList.
 
 exports.DataList = DataList;
 
-},{"./../FieldDBObject":4,"./../comment/Comments":15,"./../datum/Datum":25,"./../datum/Document":32,"./../datum/DocumentCollection":33,"./../locales/ContextualizableObject":43,"q":78}],24:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../comment/Comments":15,"./../datum/Datum":25,"./../datum/Document":32,"./../datum/DocumentCollection":33,"./../locales/ContextualizableObject":43,"q":80}],24:[function(require,module,exports){
 var DataList = require("./DataList").DataList;
 var DocumentCollection = require("./../datum/DocumentCollection").DocumentCollection;
 var Comments = require("./../comment/Comments").Comments;
@@ -8759,11 +9193,11 @@ var Session = require("./../FieldDBObject").FieldDBObject;
  * @class The Datum widget is the place where all linguistic data is
  *        entered; one at a time.
  *
- * @property {DatumField} utterance The utterance field generally
+ * @property {DatumField} transcription The transcription field generally
  *           corresponds to the first line in linguistic examples that can
  *           either be written in the language's orthography or a
  *           romanization of the language. An additional field can be added
- *           if the language has a non-roman script.
+ *           if the language has a non-roman script. (This was previously called the utterance field).
  * @property {DatumField} gloss The gloss field corresponds to the gloss
  *           line in linguistic examples where the morphological details of
  *           the words are displayed.
@@ -10019,7 +10453,7 @@ var Confidential = require("./../confidentiality_encryption/Confidential").Confi
  *           text area. Some of them, such as the judgment one will be very
  *           short, while others context can be infinitely long.
  * @property label The label that is associated with the field, such as
- *           Utterance, Morphemes, etc.
+ *           Transcription, Morphemes, etc.
  * @property value This is what the user will enter when entering data into
  *           the data fields.
  * @property mask This allows users to mask fields for confidentiality.
@@ -10030,9 +10464,9 @@ var Confidential = require("./../confidentiality_encryption/Confidential").Confi
  * @constructs
  */
 var DatumField = function DatumField(options) {
-  if(!this._fieldDBtype){
-		this._fieldDBtype = "DatumField";
-	}
+  if (!this._fieldDBtype) {
+    this._fieldDBtype = "DatumField";
+  }
 
   this.debug("Constructing DatumField ", options);
   // Let encryptedValue and value from serialization be set
@@ -10115,8 +10549,16 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
     },
     set: function(value) {
       this.debug("label is deprecated, instead automatically contextualize a label for appropriate user eg labelFieldLinguists,  labelNonLinguists, labelTranslators, labelComputationalLinguist");
-      this.labelFieldLinguists = value;
-      this.id = value;
+      if (!this.labelFieldLinguists) {
+        if (value && value.length > 2) {
+          this.labelFieldLinguists = value[0].toUpperCase() + value.substring(1, value.length);
+        } else {
+          this.labelFieldLinguists = value;
+        }
+      }
+      if (!this.id) {
+        this.id = value;
+      }
     }
   },
 
@@ -10375,14 +10817,16 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
         return;
       }
       if (!value) {
-        var fieldCanBeDeleted = !this._shouldBeEncrypted || (this._shouldBeEncrypted && this.decryptedMode);
-        if (fieldCanBeDeleted) {
-          delete this._value;
-          delete this._mask;
-          delete this._encryptedValue;
+        var fieldCanBeEmptied = !this._shouldBeEncrypted || (this._shouldBeEncrypted && this.decryptedMode);
+        if (fieldCanBeEmptied) {
+          this._value = "";
+          this._mask = "";
+          this._encryptedValue = "";
           return;
         } else {
-          this.warn("The value was removed by the user, but they are not able to edit the field currently.");
+          if (this._value) {
+            this.warn("The value " + this._value + " of " + this.id + " was requested to be removed by the user, but they are not able to edit the field currently. No changes were made ");
+          }
           return;
         }
       }
@@ -10509,7 +10953,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
   help: {
     configurable: true,
     get: function() {
-      return this._help || "Put your team's data entry conventions here (if any)...";
+      return this._helpLinguists || this._help || "Put your team's data entry conventions here (if any)...";
     },
     set: function(value) {
       if (value === this._help) {
@@ -10520,12 +10964,15 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
         return;
       }
       this._help = value.trim();
+      if (!this.helpLinguists) {
+        this.helpLinguists = this._help;
+      }
     }
   },
 
   helpLinguists: {
     get: function() {
-      return this._helpLinguists || "Put your team's data entry conventions here (if any)...";
+      return this._helpLinguists || this.help;
     },
     set: function(value) {
       if (value === this._helpLinguists) {
@@ -10541,7 +10988,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
 
   helpNonLinguists: {
     get: function() {
-      return this._helpNonLinguists || "Put your team's data entry conventions here (if any)...";
+      return this._helpNonLinguists || this.help;
     },
     set: function(value) {
       if (value === this._helpNonLinguists) {
@@ -10557,7 +11004,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
 
   helpTranslators: {
     get: function() {
-      return this._helpTranslators || "Put your team's data entry conventions here (if any)...";
+      return this._helpTranslators || this.help;
     },
     set: function(value) {
       if (value === this._helpTranslators) {
@@ -10573,7 +11020,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
 
   helpComputationalLinguists: {
     get: function() {
-      return this._helpComputationalLinguists || "Put your team's data entry conventions here (if any)...";
+      return this._helpComputationalLinguists || this.help;
     },
     set: function(value) {
       if (value === this._helpComputationalLinguists) {
@@ -10589,7 +11036,7 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
 
   helpDevelopers: {
     get: function() {
-      return this._helpDevelopers || "Put your team's data entry conventions here (if any)...";
+      return this._helpDevelopers || this.help;
     },
     set: function(value) {
       if (value === this._helpDevelopers) {
@@ -10822,13 +11269,21 @@ DatumField.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumFi
   toJSON: {
     value: function(includeEvenEmptyAttributes, removeEmptyAttributes) {
       this.debug("Customizing toJSON ", includeEvenEmptyAttributes, removeEmptyAttributes);
+      includeEvenEmptyAttributes = true;
       var json = FieldDBObject.prototype.toJSON.apply(this, arguments);
       delete json.dateCreated;
       delete json.dateModified;
       delete json.comments;
       delete json.dbname;
 
-      json.id = json._id;
+      // TODO eventually dont include the label and hint but now include it for backward compaitibilty
+      json.label = this.id;
+      json.hint = this.hint || "";
+
+      json.value = this.value || "";
+      json.mask = this.mask || "";
+
+      json.id = this.id;
       delete json._id;
 
       json.fieldDBtype = this.fieldDBtype;
@@ -10887,6 +11342,46 @@ DatumFields.prototype = Object.create(Collection.prototype, /** @lends DatumFiel
 
   capitalizeFirstCharacterOfPrimaryKeys: {
     value: false
+  },
+
+  /**
+   *  Docs/items in a DatumFields are reorderable by default
+   * @type {Boolean}
+   */
+  docsAreReorderable: {
+    get: function() {
+      if (this._docsAreReorderable !== null && this._docsAreReorderable !== undefined) {
+        return this._docsAreReorderable;
+      }
+      return true;
+    },
+    set: function(value) {
+      if (value === null || value === undefined) {
+        delete this._docsAreReorderable;
+        return;
+      }
+      this._docsAreReorderable = value;
+    }
+  },
+
+  /**
+   *  Docs/items in a DatumFields are reorderable by default
+   * @type {Boolean}
+   */
+  showDocPosition: {
+    get: function() {
+      if (this._showDocPosition !== null && this._showDocPosition !== undefined) {
+        return this._showDocPosition;
+      }
+      return true;
+    },
+    set: function(value) {
+      if (value === null || value === undefined) {
+        delete this._showDocPosition;
+        return;
+      }
+      this._showDocPosition = value;
+    }
   }
 
 });
@@ -10967,7 +11462,7 @@ DatumState.prototype = Object.create(FieldDBObject.prototype, /** @lends DatumSt
 });
 exports.DatumState = DatumState;
 
-},{"./../FieldDBObject":4,"./../user/UserMask":57}],29:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../user/UserMask":58}],29:[function(require,module,exports){
 var DatumTags = require("./DatumTags").DatumTags;
 var DatumState = require("./DatumState").DatumState;
 
@@ -11471,7 +11966,7 @@ Response.prototype = Object.create(Stimulus.prototype, /** @lends Response.proto
 });
 exports.Response = Response;
 
-},{"./Stimulus":35,"q":78}],35:[function(require,module,exports){
+},{"./Stimulus":35,"q":80}],35:[function(require,module,exports){
 var Datum = require("./Datum").Datum;
 
 /**
@@ -11622,6 +12117,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   var PsycholinguisticsApp = require("./app/PsycholinguisticsApp").PsycholinguisticsApp;
   var Export = require("./export/Export");
   var FieldDBObject = require("./FieldDBObject").FieldDBObject;
+  var Collection = require("./Collection").Collection;
   var Document = require("./datum/Document").Document;
   var CORS = require("./CORS").CORS;
   CORS.bug = FieldDBObject.prototype.bug;
@@ -11631,6 +12127,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   var AudioVideos = require("./audio_video/AudioVideos").AudioVideos;
   var AudioVideoRecorder = require("./audio_video/AudioVideoRecorder").AudioVideoRecorder;
   var Datum = require("./datum/Datum").Datum;
+  var DatumField = require("./datum/DatumField").DatumField;
   var Stimulus = require("./datum/Stimulus").Stimulus;
   var Response = require("./datum/Response").Response;
   var Database = require("./corpus/Database").Database;
@@ -11640,6 +12137,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   var User = require("./user/User").User;
   var UserMask = require("./user/UserMask").UserMask;
   var Team = require("./user/Team").Team;
+  var Permission = require("./permission/Permission").Permission;
   var Speaker = require("./user/Speaker").Speaker;
   var Consultant = require("./user/Consultant").Consultant;
   var Participant = require("./user/Participant").Participant;
@@ -11657,6 +12155,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   FieldDB.PsycholinguisticsApp = PsycholinguisticsApp;
   FieldDB.Export = Export;
   FieldDB.FieldDBObject = FieldDBObject;
+  FieldDB.Collection = Collection;
   FieldDB.Document = Document;
   FieldDB.CORS = CORS;
   FieldDB.DataList = DataList;
@@ -11665,6 +12164,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   FieldDB.AudioVideos = AudioVideos;
   FieldDB.AudioVideoRecorder = AudioVideoRecorder;
   FieldDB.Datum = Datum;
+  FieldDB.DatumField = DatumField;
   FieldDB.Stimulus = Stimulus;
   FieldDB.Response = Response;
   FieldDB.Database = Database;
@@ -11673,6 +12173,7 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   FieldDB.Router = Router;
   FieldDB.User = User;
   FieldDB.UserMask = UserMask;
+  FieldDB.Permission = Permission;
   FieldDB.Team = Team;
   FieldDB.Speaker = Speaker;
   FieldDB.Consultant = Consultant;
@@ -11699,14 +12200,14 @@ var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? 
   console.log("------------------------------------------------------------------------");
   console.log("-----------------------Welcome to the power user console! Type----------");
   console.log("--------------------------FieldDB.--------------------------------------");
-  // console.log("------------------",FieldDB);
+  console.log("------------------",new FieldDB.FieldDBObject().version);
   // FieldDB["Response"] = Response;
   console.log("---------------------------for available models/functionality-----------");
   console.log("------------------------------------------------------------------------");
   console.log("------------------------------------------------------------------------");
 }(typeof exports === "object" && exports || this));
 
-},{"./CORS":1,"./FieldDBConnection":3,"./FieldDBObject":4,"./Router":5,"./app/App":7,"./app/PsycholinguisticsApp":8,"./audio_video/AudioVideo":10,"./audio_video/AudioVideoRecorder":11,"./audio_video/AudioVideos":12,"./corpus/Corpus":17,"./corpus/CorpusMask":18,"./corpus/Database":19,"./corpus/PsycholinguisticsDatabase":20,"./data_list/DataList":23,"./data_list/SubExperimentDataList":24,"./datum/Datum":25,"./datum/Document":32,"./datum/Response":34,"./datum/Stimulus":35,"./export/Export":36,"./import/Import":42,"./locales/Contextualizer":44,"./search/Search":49,"./user/Consultant":52,"./user/Participant":53,"./user/Speaker":54,"./user/Team":55,"./user/User":56,"./user/UserMask":57,"q":78}],38:[function(require,module,exports){
+},{"./CORS":1,"./Collection":2,"./FieldDBConnection":3,"./FieldDBObject":4,"./Router":5,"./app/App":7,"./app/PsycholinguisticsApp":8,"./audio_video/AudioVideo":10,"./audio_video/AudioVideoRecorder":11,"./audio_video/AudioVideos":12,"./corpus/Corpus":17,"./corpus/CorpusMask":18,"./corpus/Database":19,"./corpus/PsycholinguisticsDatabase":20,"./data_list/DataList":23,"./data_list/SubExperimentDataList":24,"./datum/Datum":25,"./datum/DatumField":26,"./datum/Document":32,"./datum/Response":34,"./datum/Stimulus":35,"./export/Export":36,"./import/Import":42,"./locales/Contextualizer":44,"./permission/Permission":49,"./search/Search":50,"./user/Consultant":53,"./user/Participant":54,"./user/Speaker":55,"./user/Team":56,"./user/User":57,"./user/UserMask":58,"q":80}],38:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -11998,6 +12499,9 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
 
   showImportSecondStep: {
     get: function() {
+      if (this.dontShowSecondStep) {
+        return false;
+      }
       return this.asCSV && this.asCSV.length > 0;
     }
   },
@@ -12110,443 +12614,394 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
         deferred = Q.defer();
 
       Q.nextTick(function() {
-        if (!self.progress) {
-          self.progress = {
-            total: 0,
-            completed: 0
-          };
-        }
-        self.progress.total = self.progress.total + 1;
-        self.datumArray = [];
-        self.consultants = [];
-        self.datalist = new DataList({
-          title: "Import Data",
-          docs: []
-        });
-
-        var filename = " typing/copy paste into text area";
-        var descript = "This is the data list which results from the import of the text typed/pasted in the import text area.";
         try {
-          filename = self.files.map(function(file) {
-            return file.name;
-          }).join(", ");
-          descript = "This is the data list which results from the import of these file(s). " + self.fileDetails;
-        } catch (e) {
-          //do nothing
-        }
-        self.render();
 
-        if (self.session !== undefined) {
-          self.session.setConsultants(self.consultants);
-          /* put metadata in the session goals */
-          self.session.goal = self.metadataLines.join("\n") + "\n" + self.session.goal;
-          self.render("session");
-        }
-        self.datalist.description = descript;
-
-        var headers = [];
-        if (self.importType === "participants") {
-          self.importFields = new DatumFields(self.corpus.participantFields.clone());
-        } else if (self.importType === "audioVideo") {
-          self.importFields = new DatumFields();
-        } else {
-          self.importFields = new DatumFields(self.corpus.datumFields.clone());
-        }
-        self.extractedHeader.map(function(item) {
-          /* TODO look up the header instead) */
-          // self.importFields.debugMode = true;
-          var correspondingDatumField = self.importFields.find(self.importFields.primaryKey, item, true);
-          if (!correspondingDatumField || correspondingDatumField.length === 0) {
-            correspondingDatumField = [new DatumField(DatumField.prototype.defaults)];
-            correspondingDatumField[0].id = item;
-            if (self.importType === "participants") {
-              correspondingDatumField[0].labelExperimenters = item;
-            } else if (self.importType === "audioVideo") {
-              console.log("this is an audioVideo import but we aren doing anything with the csv");
-              // correspondingDatumField[0].labelFieldLinguists = item;
-            } else {
-              correspondingDatumField[0].labelFieldLinguists = item;
-            }
-            correspondingDatumField[0].help = "This field came from file import";
-            var lookAgain = self.importFields.find(correspondingDatumField[0].id);
-            if (lookAgain.length) {
-
-            }
+          if (!self.progress) {
+            self.progress = {
+              total: 0,
+              completed: 0
+            };
           }
-          self.debug("correspondingDatumField ", correspondingDatumField);
-          if (headers.indexOf(correspondingDatumField) >= 0) {
-            self.bug("You seem to have some column labels that are duplicated" +
-              " (the same label on two columns). This will result in a strange " +
-              "import where only the second of the two will be used in the import. " +
-              "Is self really what you want?.");
-          }
-          headers.push(correspondingDatumField[0]);
-          return item;
-        });
-        /*
-         * Convert new datum fields into a category, if types of a category
-         */
-        var fieldToGeneralize;
-        for (var f in headers) {
-          if (headers[f].id === "" || headers[f].id === undefined) {
+          self.progress.total = self.progress.total + 1;
+          self.datumArray = [];
+          self.consultants = [];
+          self.datalist = new DataList({
+            title: "Import Data",
+            docs: []
+          });
+
+          var filename = " typing/copy paste into text area";
+          var descript = "This is the data list which results from the import of the text typed/pasted in the import text area.";
+          try {
+            filename = self.files.map(function(file) {
+              return file.name;
+            }).join(", ");
+            descript = "This is the data list which results from the import of these file(s). " + self.fileDetails;
+          } catch (e) {
             //do nothing
-          } else if (headers[f].id.toLowerCase().indexOf("checkedwith") > -1 || headers[f].id.toLowerCase().indexOf("checkedby") > -1 || headers[f].id.toLowerCase().indexOf("publishedin") > -1) {
-            fieldToGeneralize = self.importFields.find("validationStatus");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
-          } else if (headers[f].id.toLowerCase().indexOf("codepermanent") > -1) {
-            fieldToGeneralize = self.importFields.find("anonymouscode");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
-          } else if (headers[f].id.toLowerCase().indexOf("nsection") > -1) {
-            fieldToGeneralize = self.importFields.find("courseNumber");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
-          } else if (headers[f].id.toLowerCase().indexOf("prenom") > -1) {
-            fieldToGeneralize = self.importFields.find("firstname");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
-          } else if (headers[f].id.toLowerCase().indexOf("nomdefamille") > -1) {
-            fieldToGeneralize = self.importFields.find("lastname");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
-          } else if (headers[f].id.toLowerCase().indexOf("datedenaissance") > -1) {
-            fieldToGeneralize = self.importFields.find("dateofbirth");
-            if (fieldToGeneralize.length > 0) {
-              self.debug("This header matches an existing corpus field. ", fieldToGeneralize);
-              fieldToGeneralize[0].labelFieldLinguists = headers[f].labelFieldLinguists;
-              fieldToGeneralize[0].labelExperimenters = headers[f].labelExperimenters;
-              headers[f] = fieldToGeneralize[0];
-            }
           }
-        }
+          self.render();
 
-        /*
-         * Cycle through all the rows in table and create a datum with the matching fields.
-         */
-        self.documentCollection = new Collection({
-          primaryKey: "dateCreated"
-        });
-        //Import from html table that the user might have edited.
-        self.asCSV.map(function(row) {
-          var docToSave;
-          if (self.importType === "participants") {
-            docToSave = new Participant({
-              confidential: self.corpus.confidential,
-              fields: new DatumFields(JSON.parse(JSON.stringify(headers)))
-            });
-          } else if (self.importType === "audioVideo") {
-            docToSave = new AudioVideo();
-            docToSave.description = self.rawText; //TODO look into the textgrid import
-          } else {
-            docToSave = new Datum({
-              datumFields: new DatumFields(JSON.parse(JSON.stringify(headers)))
-            });
+          if (self.session !== undefined) {
+            self.session.setConsultants(self.consultants);
+            /* put metadata in the session goals */
+            self.session.goal = self.metadataLines.join("\n") + "\n" + self.session.goal;
+            self.render("session");
           }
-          var testForEmptyness = "";
-          for (var index = 0; index < row.length; index++) {
-            var item = row[index];
-            // var newfieldValue = $(item).html().trim();
-            /*
-             * the import sometimes inserts &nbsp into the data,
-             * often when the csv detection didnt work. This might
-             * slow import down significantly. i tested it, it looks
-             * like self isnt happening to the data anymore so i
-             * turned self off, but if we notice &nbsp in the
-             * datagain we can turn it back on . for #855
-             */
-            //            if(newfieldValue.indexOf("&nbsp;") >= 0 ){
-            //              self.bug("It seems like the line contiaining : "+newfieldValue+" : was badly recognized in the table import. You might want to take a look at the table and edit the data so it is in columns that you expected.");
-            //            }
+          self.datalist.description = descript;
+
+          self.debug("importFields before adding new fields from extracted header ", self.importFields.map(function(item) {
+            return item.id;
+          }));
+
+          self.extractedHeaderObjects = self.extractedHeader.concat([]);
+          var fieldLabelFromExtractedHeader,
+            correspondingDatumField;
+          for (var columnIndex = 0; columnIndex < self.extractedHeaderObjects.length; columnIndex++) {
+            fieldLabelFromExtractedHeader = self.extractedHeaderObjects[columnIndex];
+            // self.debugMode = true;
+            correspondingDatumField = self.normalizeImportFieldWithExistingCorpusFields(fieldLabelFromExtractedHeader);
+            if (correspondingDatumField.id && self.extractedHeader.indexOf(correspondingDatumField.id) >= 0) {
+              self.bug("You seem to have some column labels '" + correspondingDatumField.id + "' that are duplicated" +
+                " (the same label on two columns). This will result in a strange " +
+                "import where only the second of the two will be used in the import. " +
+                "Is this really what you want?.");
+            }
+            self.debug(columnIndex + "correspondingDatumField", correspondingDatumField);
+            self.extractedHeaderObjects[columnIndex] = correspondingDatumField;
+          }
+
+          self.debug("importFields which will be used for this import", self.importFields.map(function(item) {
+            return item.id;
+          }));
+
+          self.debug("importFields after using the corpus field ", self.importFields.map(function(item) {
+            return item.labelFieldLinguists;
+          }));
+
+          /*
+           * Cycle through all the rows in table and create a datum with the matching fields.
+           */
+          self.documentCollection = new Collection({
+            primaryKey: "dateCreated"
+          });
+
+          //Import from html table that the user might have edited.
+          self.asCSV.map(function(row) {
+            var docToSave;
             if (self.importType === "participants") {
-              docToSave.fields[headers[index].id].value = item.trim();
+              docToSave = new Participant({
+                confidential: self.corpus.confidential,
+                fields: new DatumFields(self.importFields.toJSON())
+              });
+              self.debug("Creating a participant.", docToSave.fields);
             } else if (self.importType === "audioVideo") {
-              console.log("this is an audioVideo but we arent doing anything with the headers");
-              // docToSave.datumFields[headers[index].id].value = item.trim();
+              docToSave = new AudioVideo();
+              docToSave.description = self.rawText; //TODO look into the textgrid import
+              self.debug("Creating a audioVideo.", docToSave.description);
             } else {
-              docToSave.datumFields[headers[index].id].value = item.trim();
+              docToSave = new Datum({
+                datumFields: new DatumFields(self.importFields.toJSON())
+              });
+              self.debug("Creating a datum.", docToSave.datumFields);
             }
-            self.debug("new doc", docToSave);
+            var testForEmptyness = "";
+            for (var index = 0; index < row.length; index++) {
+              var item = row[index];
+              if (!self.extractedHeaderObjects[index]) {
+                self.debug("Skipping column " + index + " :" + item);
+                continue;
+              }
+              // var newfieldValue = $(item).html().trim();
+              /*
+               * the import sometimes inserts &nbsp into the data,
+               * often when the csv detection didnt work. This might
+               * slow import down significantly. i tested it, it looks
+               * like self isnt happening to the data anymore so i
+               * turned self off, but if we notice &nbsp in the
+               * datagain we can turn it back on . for #855
+               */
+              //            if(newfieldValue.indexOf("&nbsp;") >= 0 ){
+              //              self.bug("It seems like the line contiaining : "+newfieldValue+" : was badly recognized in the table import. You might want to take a look at the table and edit the data so it is in columns that you expected.");
+              //            }
 
-            testForEmptyness += item.trim();
-          }
-          //if the table row has more than 2 non-white space characters, enter it as data
-          if (testForEmptyness.replace(/[ \t\n]/g, "").length >= 2) {
-            self.documentCollection.add(docToSave);
-          } else {
-            //dont add blank datum
-            if (self.debugMode) {
-              self.debug("Didn't add a blank row:" + testForEmptyness + ": ");
+              var headerLabel = self.extractedHeaderObjects[index].id;
+              console.log("finding the matching label in the csv ", headerLabel);
+              self.debug("finding the matching label in the csv ", self.importFields.find(headerLabel, null, "match as close as possible"));
+              if (self.importType === "participants") {
+                docToSave.fields[headerLabel].value = item.trim();
+              } else if (self.importType === "audioVideo") {
+                console.log("this is an audioVideo but we arent doing anything with the self.importFields");
+                // docToSave.datumFields[self.importFields.find(self.extractedHeader[index])[0].id].value = item.trim();
+              } else {
+                docToSave.datumFields[headerLabel].value = item.trim();
+              }
+              self.debug("new doc", docToSave);
+
+              testForEmptyness += item.trim();
             }
-          }
-        });
+            //if the table row has more than 2 non-white space characters, enter it as data
+            if (testForEmptyness.replace(/[ \t\n]/g, "").length >= 2) {
+              self.documentCollection.add(docToSave);
+            } else {
+              //dont add blank datum
+              if (self.debugMode) {
+                self.debug("Didn't add a blank row:" + testForEmptyness + ": ");
+              }
+            }
+          });
 
-        var savePromises = [];
-        self.documentCollection._collection.map(function(builtDoc) {
-          if (self.importType === "participants") {
-            builtDoc.id = builtDoc.anonymousCode || Date.now();
-            builtDoc.url = "https://corpusdev.lingsync.org/" + self.corpus.dbname;
-            self.debug(" saving", builtDoc.id);
-            self.progress.total++;
-            self.datalist.docs.add(builtDoc);
+          var savePromises = [];
+          self.documentCollection._collection.map(function(builtDoc) {
+            if (self.importType === "participants") {
+              builtDoc.id = builtDoc.anonymousCode || Date.now();
+              builtDoc.url = "https://corpusdev.lingsync.org/" + self.corpus.dbname;
+              self.debug(" saving", builtDoc.id);
+              self.progress.total++;
+              self.datalist.docs.add(builtDoc);
 
-            var promise = builtDoc.save();
+              var promise = builtDoc.save();
 
-            promise.then(function(success) {
-              self.debug(success);
-              self.progress.completed++;
-            }, function(error) {
-              self.debug(error);
-              self.progress.completed++;
-            });
-            savePromises.push(promise);
-          } else if (self.importType === "audioVideo") {
-            console.log("not doing anything for an audio video import");
-          } else {
-            console.log("not doing anything for a datum import");
-          }
-        });
+              promise.then(function(success) {
+                self.debug(success);
+                self.progress.completed++;
+              }, function(error) {
+                self.debug(error);
+                self.progress.completed++;
+              });
+              savePromises.push(promise);
+            } else if (self.importType === "audioVideo") {
+              self.debug("not doing any save for an audio video import");
+            } else {
+              self.debug("not doing any save for a datum import");
+            }
+          });
 
-        Q.allSettled(savePromises).then(function(results) {
-          self.debug(results);
-          deferred.resolve(results);
-          self.progress.completed++;
-        }, function(results) {
-          self.debug(results);
-          deferred.resolve(results);
-          self.progress.completed++;
-        });
+          Q.allSettled(savePromises).then(function(results) {
+            self.debug(results);
+            deferred.resolve(results);
+            self.progress.completed++;
+          }, function(results) {
+            self.debug(results);
+            deferred.resolve(results);
+            self.progress.completed++;
+          });
 
-        self.discoveredHeaders = headers;
-        // return headers;
+          // self.discoveredHeaders = self.extractedHeaderObjects;
+          // return self.importFields;
 
-        //   /*
-        //    * after building an array of datumobjects, turn them into backbone objects
-        //    */
-        //   var eachFileDetails = function(fileDetails) {
-        //     var details = JSON.parse(JSON.stringify(fileDetails));
-        //     delete details.textgrid;
-        //     audioFileDescriptionsKeyedByFilename[fileDetails.fileBaseName + ".mp3"] = details;
-        //   };
+          //   /*
+          //    * after building an array of datumobjects, turn them into backbone objects
+          //    */
+          //   var eachFileDetails = function(fileDetails) {
+          //     var details = JSON.parse(JSON.stringify(fileDetails));
+          //     delete details.textgrid;
+          //     audioFileDescriptionsKeyedByFilename[fileDetails.fileBaseName + ".mp3"] = details;
+          //   };
 
-        //   var forEachRow = function(index, value) {
-        //     if (index === "" || index === undefined) {
-        //       //do nothing
-        //     }
-        //     /* TODO removing old tag code for */
-        //     //          else if (index === "datumTags") {
-        //     //            var tags = value.split(" ");
-        //     //            for(g in tags){
-        //     //              var t = new DatumTag({
-        //     //                "tag" : tags[g]
-        //     //              });
-        //     //              d.get("datumTags").add(t);
-        //     //            }
-        //     //          }
-        //     /* turn the CheckedWithConsultant and ToBeCheckedWithConsultantinto columns into a status, with that string as the person */
-        //     else if (index.toLowerCase().indexOf("checkedwithconsultant") > -1) {
-        //       var consultants = [];
-        //       if (value.indexOf(",") > -1) {
-        //         consultants = value.split(",");
-        //       } else if (value.indexOf(";") > -1) {
-        //         consultants = value.split(";");
-        //       } else {
-        //         consultants = value.split(" ");
-        //       }
-        //       var validationStati = [];
-        //       for (var g in consultants) {
-        //         var consultantusername = consultants[g].toLowerCase();
-        //         self.consultants.push(consultantusername);
-        //         if (!consultantusername) {
-        //           continue;
-        //         }
-        //         var validationType = "CheckedWith";
-        //         var validationColor = "success";
-        //         if (index.toLowerCase().indexOf("ToBeChecked") > -1) {
-        //           validationType = "ToBeCheckedWith";
-        //           validationColor = "warning";
-        //         }
+          //   var forEachRow = function(index, value) {
+          //     if (index === "" || index === undefined) {
+          //       //do nothing
+          //     }
+          //     /* TODO removing old tag code for */
+          //     //          else if (index === "datumTags") {
+          //     //            var tags = value.split(" ");
+          //     //            for(g in tags){
+          //     //              var t = new DatumTag({
+          //     //                "tag" : tags[g]
+          //     //              });
+          //     //              d.get("datumTags").add(t);
+          //     //            }
+          //     //          }
+          //     /* turn the CheckedWithConsultant and ToBeCheckedWithConsultantinto columns into a status, with that string as the person */
+          //     else if (index.toLowerCase().indexOf("checkedwithconsultant") > -1) {
+          //       var consultants = [];
+          //       if (value.indexOf(",") > -1) {
+          //         consultants = value.split(",");
+          //       } else if (value.indexOf(";") > -1) {
+          //         consultants = value.split(";");
+          //       } else {
+          //         consultants = value.split(" ");
+          //       }
+          //       var validationStati = [];
+          //       for (var g in consultants) {
+          //         var consultantusername = consultants[g].toLowerCase();
+          //         self.consultants.push(consultantusername);
+          //         if (!consultantusername) {
+          //           continue;
+          //         }
+          //         var validationType = "CheckedWith";
+          //         var validationColor = "success";
+          //         if (index.toLowerCase().indexOf("ToBeChecked") > -1) {
+          //           validationType = "ToBeCheckedWith";
+          //           validationColor = "warning";
+          //         }
 
-        //         var validationString = validationType + consultants[g].replace(/[- _.]/g, "");
-        //         validationStati.push(validationString);
-        //         var n = fields.where({
-        //           label: "validationStatus"
-        //         })[0];
-        //         /* add to any exisitng validation states */
-        //         var validationStatus = n.get("mask") || "";
-        //         validationStatus = validationStatus + " ";
-        //         validationStatus = validationStatus + validationStati.join(" ");
-        //         var uniqueStati = _.unique(validationStatus.trim().split(" "));
-        //         n.set("mask", uniqueStati.join(" "));
+          //         var validationString = validationType + consultants[g].replace(/[- _.]/g, "");
+          //         validationStati.push(validationString);
+          //         var n = fields.where({
+          //           label: "validationStatus"
+          //         })[0];
+          //         /* add to any exisitng validation states */
+          //         var validationStatus = n.get("mask") || "";
+          //         validationStatus = validationStatus + " ";
+          //         validationStatus = validationStatus + validationStati.join(" ");
+          //         var uniqueStati = _.unique(validationStatus.trim().split(" "));
+          //         n.set("mask", uniqueStati.join(" "));
 
-        //         //              ROUGH DRAFT of adding CONSULTANTS logic TODO do self in the angular app, dont bother with the backbone app
-        //         //              /* get the initials from the data */
-        //         //              var consultantCode = consultants[g].replace(/[a-z -]/g,"");
-        //         //              if(consultantusername.length === 2){
-        //         //                consultantCode = consultantusername;
-        //         //              }
-        //         //              if(consultantCode.length < 2){
-        //         //                consultantCode = consultantCode+"C";
-        //         //              }
-        //         //              var c = new Consultant("username", consultantCode);
-        //         //              /* use the value in the cell for the checked with state, but don't keep the spaces */
-        //         //              var validationType = "CheckedWith";
-        //         //              if(index.toLowerCase().indexOf("ToBeChecked") > -1){
-        //         //                validationType = "ToBeCheckedWith";
-        //         //              }
-        //         //              /*
-        //         //               * This function uses the consultant code to create a new validation status
-        //         //               */
-        //         //              var onceWeGetTheConsultant = function(){
-        //         //                var validationString = validationType+consultants[g].replace(/ /g,"");
-        //         //                validationStati.push(validationString);
-        //         //                var n = fields.where({label: "validationStatus"})[0];
-        //         //                if(n !== undefined){
-        //         //                  /* add to any exisitng validation states */
-        //         //                  var validationStatus = n.get("mask") || "";
-        //         //                  validationStatus = validationStatus + " ";
-        //         //                  validationStatus = validationStatus + validationStati.join(" ");
-        //         //                  var uniqueStati = _.unique(validationStatus.trim().split(" "));
-        //         //                  n.set("mask", uniqueStati.join(" "));
-        //         //                }
-        //         //              };
-        //         //              /*
-        //         //               * This function creates a consultant code and then calls
-        //         //               * onceWeGetTheConsultant to create a new validation status
-        //         //               */
-        //         //              var callIfItsANewConsultant = function(){
-        //         //                var dialect =  "";
-        //         //                var language =  "";
-        //         //                try{
-        //         //                  dialect = fields.where({label: "dialect"})[0] || "";
-        //         //                  language = fields.where({label: "language"})[0] || "";
-        //         //                }catch(e){
-        //         //                  self.debug("Couldn't get self consultant's dialect or language");
-        //         //                }
-        //         //                c = new Consultant({filledWithDefaults: true});
-        //         //                c.set("username", Date.now());
-        //         //                if(dialect)
-        //         //                  c.set("dialect", dialect);
-        //         //                if(dialect)
-        //         //                  c.set("language", language);
-        //         //
-        //         //                onceWeGetTheConsultant();
-        //         //              };
-        //         //              c.fetch({
-        //         //                success : function(model, response, options) {
-        //         //                  onceWeGetTheConsultant();
-        //         //                },
-        //         //                error : function(model, xhr, options) {
-        //         //                  callIfItsANewConsultant();
-        //         //                }
-        //         //              });
+          //         //              ROUGH DRAFT of adding CONSULTANTS logic TODO do self in the angular app, dont bother with the backbone app
+          //         //              /* get the initials from the data */
+          //         //              var consultantCode = consultants[g].replace(/[a-z -]/g,"");
+          //         //              if(consultantusername.length === 2){
+          //         //                consultantCode = consultantusername;
+          //         //              }
+          //         //              if(consultantCode.length < 2){
+          //         //                consultantCode = consultantCode+"C";
+          //         //              }
+          //         //              var c = new Consultant("username", consultantCode);
+          //         //              /* use the value in the cell for the checked with state, but don't keep the spaces */
+          //         //              var validationType = "CheckedWith";
+          //         //              if(index.toLowerCase().indexOf("ToBeChecked") > -1){
+          //         //                validationType = "ToBeCheckedWith";
+          //         //              }
+          //         //              /*
+          //         //               * This function uses the consultant code to create a new validation status
+          //         //               */
+          //         //              var onceWeGetTheConsultant = function(){
+          //         //                var validationString = validationType+consultants[g].replace(/ /g,"");
+          //         //                validationStati.push(validationString);
+          //         //                var n = fields.where({label: "validationStatus"})[0];
+          //         //                if(n !== undefined){
+          //         //                  /* add to any exisitng validation states */
+          //         //                  var validationStatus = n.get("mask") || "";
+          //         //                  validationStatus = validationStatus + " ";
+          //         //                  validationStatus = validationStatus + validationStati.join(" ");
+          //         //                  var uniqueStati = _.unique(validationStatus.trim().split(" "));
+          //         //                  n.set("mask", uniqueStati.join(" "));
+          //         //                }
+          //         //              };
+          //         //              /*
+          //         //               * This function creates a consultant code and then calls
+          //         //               * onceWeGetTheConsultant to create a new validation status
+          //         //               */
+          //         //              var callIfItsANewConsultant = function(){
+          //         //                var dialect =  "";
+          //         //                var language =  "";
+          //         //                try{
+          //         //                  dialect = fields.where({label: "dialect"})[0] || "";
+          //         //                  language = fields.where({label: "language"})[0] || "";
+          //         //                }catch(e){
+          //         //                  self.debug("Couldn't get self consultant's dialect or language");
+          //         //                }
+          //         //                c = new Consultant({filledWithDefaults: true});
+          //         //                c.set("username", Date.now());
+          //         //                if(dialect)
+          //         //                  c.set("dialect", dialect);
+          //         //                if(dialect)
+          //         //                  c.set("language", language);
+          //         //
+          //         //                onceWeGetTheConsultant();
+          //         //              };
+          //         //              c.fetch({
+          //         //                success : function(model, response, options) {
+          //         //                  onceWeGetTheConsultant();
+          //         //                },
+          //         //                error : function(model, xhr, options) {
+          //         //                  callIfItsANewConsultant();
+          //         //                }
+          //         //              });
 
 
-        //       }
-        //     } else if (index === "validationStatus") {
-        //       var eachValidationStatus = fields.where({
-        //         label: index
-        //       })[0];
-        //       if (eachValidationStatus !== undefined) {
-        //         /* add to any exisitng validation states */
-        //         var selfValidationStatus = eachValidationStatus.get("mask") || "";
-        //         selfValidationStatus = selfValidationStatus + " ";
-        //         selfValidationStatus = selfValidationStatus + value;
-        //         var selfUniqueStati = _.unique(selfValidationStatus.trim().split(" "));
-        //         eachValidationStatus.set("mask", selfUniqueStati.join(" "));
-        //       }
-        //     } else if (index === "audioFileName") {
-        //       if (!audioVideo) {
-        //         audioVideo = new AudioVideo();
-        //       }
-        //       audioVideo.set("filename", value);
-        //       audioVideo.set("orginalFilename", audioFileDescriptionsKeyedByFilename[value] ? audioFileDescriptionsKeyedByFilename[value].name : "");
-        //       audioVideo.set("URL", self.audioUrl + "/" + window.app.get("corpus").pouchname + "/" + value);
-        //       audioVideo.set("description", audioFileDescriptionsKeyedByFilename[value] ? audioFileDescriptionsKeyedByFilename[value].description : "");
-        //       audioVideo.set("details", audioFileDescriptionsKeyedByFilename[value]);
-        //     } else if (index === "startTime") {
-        //       if (!audioVideo) {
-        //         audioVideo = new AudioVideo();
-        //       }
-        //       audioVideo.set("startTime", value);
-        //     } else if (index === "endTime") {
-        //       if (!audioVideo) {
-        //         audioVideo = new AudioVideo();
-        //       }
-        //       audioVideo.set("endTime", value);
-        //     } else {
-        //       var knownlowercasefields = "utterance,gloss,morphemes,translation".split();
-        //       if (knownlowercasefields.indexOf(index.toLowerCase()) > -1) {
-        //         index = index.toLowerCase();
-        //       }
-        //       var igtField = fields.where({
-        //         label: index
-        //       })[0];
-        //       if (igtField !== undefined) {
-        //         igtField.set("mask", value);
-        //       }
-        //     }
-        //   };
-        //   for (var a in array) {
-        //     var d = new Datum({
-        //       filledWithDefaults: true,
-        //       pouchname: self.dbname
-        //     });
-        //     //copy the corpus"s datum fields and empty them.
-        //     var datumfields = self.importFields.clone();
-        //     for (var x in datumfields) {
-        //       datumfields[x].mask = "";
-        //       datumfields[x].value = "";
-        //     }
-        //     var fields = new DatumFields(datumfields);
-        //     var audioVideo = null;
-        //     var audioFileDescriptionsKeyedByFilename = {};
-        //     if (self.files && self.files.map) {
-        //       self.files.map(eachFileDetails);
-        //     }
+          //       }
+          //     } else if (index === "validationStatus") {
+          //       var eachValidationStatus = fields.where({
+          //         label: index
+          //       })[0];
+          //       if (eachValidationStatus !== undefined) {
+          //         /* add to any exisitng validation states */
+          //         var selfValidationStatus = eachValidationStatus.get("mask") || "";
+          //         selfValidationStatus = selfValidationStatus + " ";
+          //         selfValidationStatus = selfValidationStatus + value;
+          //         var selfUniqueStati = _.unique(selfValidationStatus.trim().split(" "));
+          //         eachValidationStatus.set("mask", selfUniqueStati.join(" "));
+          //       }
+          //     } else if (index === "audioFileName") {
+          //       if (!audioVideo) {
+          //         audioVideo = new AudioVideo();
+          //       }
+          //       audioVideo.set("filename", value);
+          //       audioVideo.set("orginalFilename", audioFileDescriptionsKeyedByFilename[value] ? audioFileDescriptionsKeyedByFilename[value].name : "");
+          //       audioVideo.set("URL", self.audioUrl + "/" + window.app.get("corpus").pouchname + "/" + value);
+          //       audioVideo.set("description", audioFileDescriptionsKeyedByFilename[value] ? audioFileDescriptionsKeyedByFilename[value].description : "");
+          //       audioVideo.set("details", audioFileDescriptionsKeyedByFilename[value]);
+          //     } else if (index === "startTime") {
+          //       if (!audioVideo) {
+          //         audioVideo = new AudioVideo();
+          //       }
+          //       audioVideo.set("startTime", value);
+          //     } else if (index === "endTime") {
+          //       if (!audioVideo) {
+          //         audioVideo = new AudioVideo();
+          //       }
+          //       audioVideo.set("endTime", value);
+          //     } else {
+          //       var knownlowercasefields = "utterance,gloss,morphemes,translation".split();
+          //       if (knownlowercasefields.indexOf(index.toLowerCase()) > -1) {
+          //         index = index.toLowerCase();
+          //       }
+          //       var igtField = fields.where({
+          //         label: index
+          //       })[0];
+          //       if (igtField !== undefined) {
+          //         igtField.set("mask", value);
+          //       }
+          //     }
+          //   };
+          //   for (var a in array) {
+          //     var d = new Datum({
+          //       filledWithDefaults: true,
+          //       pouchname: self.dbname
+          //     });
+          //     //copy the corpus"s datum fields and empty them.
+          //     var datumfields = self.importFields.clone();
+          //     for (var x in datumfields) {
+          //       datumfields[x].mask = "";
+          //       datumfields[x].value = "";
+          //     }
+          //     var fields = new DatumFields(datumfields);
+          //     var audioVideo = null;
+          //     var audioFileDescriptionsKeyedByFilename = {};
+          //     if (self.files && self.files.map) {
+          //       self.files.map(eachFileDetails);
+          //     }
 
-        //     $.each(array[a], forEachRow);
-        //     d.set("datumFields", fields);
-        //     if (audioVideo) {
-        //       d.audioVideo.add(audioVideo);
-        //       if (self.debugMode) {
-        //         self.debug(JSON.stringify(audioVideo.toJSON()) + JSON.stringify(fields.toJSON()));
-        //       }
-        //     }
-        //     // var states = window.app.get("corpus").get("datumStates").clone();
-        //     // d.set("datumStates", states);
-        //     d.set("session", self.get("session"));
-        //     //these are temp datums, dont save them until the user saves the data list
-        //     self.importPaginatedDataListDatumsView.collection.add(d);
-        //     //        self.dataListView.model.get("datumIds").push(d.id); the datum has no id, cannot put in datumIds
-        //     d.lookForSimilarDatum();
-        //     self.get("datumArray").push(d);
-        //   }
-        //   self.set("consultants", _.unique(self.consultants).join(","));
-        //   self.importPaginatedDataListDatumsView.renderUpdatedPaginationControl();
+          //     $.each(array[a], forEachRow);
+          //     d.set("datumFields", fields);
+          //     if (audioVideo) {
+          //       d.audioVideo.add(audioVideo);
+          //       if (self.debugMode) {
+          //         self.debug(JSON.stringify(audioVideo.toJSON()) + JSON.stringify(fields.toJSON()));
+          //       }
+          //     }
+          //     // var states = window.app.get("corpus").get("datumStates").clone();
+          //     // d.set("datumStates", states);
+          //     d.set("session", self.get("session"));
+          //     //these are temp datums, dont save them until the user saves the data list
+          //     self.importPaginatedDataListDatumsView.collection.add(d);
+          //     //        self.dataListView.model.get("datumIds").push(d.id); the datum has no id, cannot put in datumIds
+          //     d.lookForSimilarDatum();
+          //     self.get("datumArray").push(d);
+          //   }
+          //   self.set("consultants", _.unique(self.consultants).join(","));
+          //   self.importPaginatedDataListDatumsView.renderUpdatedPaginationControl();
 
-        //   $(".approve-save").removeAttr("disabled");
-        //   $(".approve-save").removeClass("disabled");
+          //   $(".approve-save").removeAttr("disabled");
+          //   $(".approve-save").removeClass("disabled");
+
+
+        } catch (e) {
+          deferred.reject(e);
+        }
 
       });
       return deferred.promise;
@@ -12613,6 +13068,75 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
         }
       });
       return deferred.promise;
+    }
+  },
+
+  importFields: {
+    get: function() {
+      if (!this._importFields || this._importFields.length === 0) {
+        if (this.importType === "participants" && this.corpus && this.corpus.participantFields) {
+          this._importFields = new DatumFields(this.corpus.participantFields.clone());
+        } else if (this.corpus && this.corpus.datumFields) {
+          this._importFields = new DatumFields(this.corpus.datumFields.clone());
+        }
+      }
+      if (!this._importFields) {
+        this._importFields = new DatumFields();
+      }
+      return this._importFields;
+    },
+    set: function(fields) {
+      this._importFields = fields;
+    }
+  },
+
+  /**
+   *  This function looks for the field's details from the import fields, if they exist it returns those values.
+   *
+   * If the field isnt in the importFields, it looks for fields which this field should map to (eg, if the field is codepermanent it can be mapped to anonymouscode)
+   * @param  {String/Object} field A datumField to look for, or the label/id of a datum field to look for.
+   * @return {DatumField}       A datum field with details filled in from the corresponding field in the corpus, or from a template.
+   */
+  normalizeImportFieldWithExistingCorpusFields: {
+    value: function(field) {
+      if (field && typeof field.trim === "function") {
+        field = field.trim();
+      }
+      if (field === undefined || field === null || field === "") {
+        return;
+      }
+      var correspondingDatumField;
+      if (this.corpus && this.corpus.normalizeFieldWithExistingCorpusFields) {
+        correspondingDatumField = this.corpus.normalizeFieldWithExistingCorpusFields(field);
+      }
+      /* if the field is still not defined inthe corpus, construct a blank field with this label */
+      if (!correspondingDatumField || correspondingDatumField.length === 0) {
+        var incomingLabel = field.id || field.label || field;
+        correspondingDatumField = [new DatumField(DatumField.prototype.defaults)];
+        correspondingDatumField[0].id = incomingLabel;
+        if (this.importType === "participants") {
+          correspondingDatumField[0].labelExperimenters = incomingLabel;
+          correspondingDatumField[0].labelFieldLinguists = incomingLabel;
+        } else if (this.importType === "audioVideo") {
+          this.debug("this is an audioVideo import but we arent doing anything with the label");
+          // correspondingDatumField[0].labelFieldLinguists = incomingLabel;
+        } else {
+          correspondingDatumField[0].labelFieldLinguists = incomingLabel;
+        }
+        correspondingDatumField[0].help = "This field came from file import";
+        var lookAgain = this.importFields.find(correspondingDatumField[0].id);
+        if (lookAgain.length) {
+          this.todo("found a  similar field now that we have created a blank one, this shouldnt have happened.", lookAgain);
+        }
+        this.importFields.add(correspondingDatumField[0]);
+      }
+      if (correspondingDatumField && correspondingDatumField[0]) {
+        correspondingDatumField = correspondingDatumField[0];
+      }
+
+      this.debug("correspondingDatumField ", correspondingDatumField);
+
+      return new DatumField(correspondingDatumField);
     }
   },
 
@@ -13175,6 +13699,69 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
     }
   },
 
+  importMorphChallengeSegmentation: {
+    value: function(text, self, callback) {
+      var rows = text.trim().split("\n");
+      if (rows.length < 3) {
+        rows = text.split("\r");
+        self.status = self.status + " Detected a \n line ending.";
+      }
+      var row,
+        original,
+        twoPieces,
+        word,
+        alternates,
+        morphemes,
+        gloss,
+        source,
+        l,
+        filename = self.files[0].name;
+      var header = ["orthography", "utterance", "morphemes", "gloss", "alternatesAnalyses", "alternates", "original", "source"];
+      var convertFlatIGTtoObject = function(alternateParse) {
+        morphemes = alternateParse.trim().split(" ");
+        // console.log("working on alternateParse", morphemes);
+        return morphemes.map(function(morpheme) {
+          return {
+            morphemes: morpheme.split(":")[0],
+            gloss: morpheme.split(":")[1]
+          };
+        });
+      };
+      var extractMorphemesFromIGT = function(alternate) {
+        return alternate.morphemes.replace("+", "");
+      };
+      var extractGlossFromIGT = function(alternate) {
+        return alternate.gloss.replace("+", "");
+      };
+      for (l in rows) {
+        row = original = rows[l] + "";
+        source = filename + ":line:" + l;
+        twoPieces = row.split(/\t/);
+        word = twoPieces[0];
+        if (!twoPieces || !twoPieces[1]) {
+          continue;
+        }
+        alternates = twoPieces[1].split(",");
+        alternates = alternates.map(convertFlatIGTtoObject);
+        morphemes = alternates[0].map(extractMorphemesFromIGT).join("-");
+        gloss = alternates[0].map(extractGlossFromIGT).join("-");
+        alternates.shift();
+        // get alternative morpheme analyses so they show in the app.
+        var alternateMorphemes = [];
+        for (var alternateIndex = 0; alternateIndex < alternates; alternateIndex++) {
+          alternateMorphemes.push(alternates[alternateIndex].map(extractMorphemesFromIGT).join("-"));
+        }
+        rows[l] = [word, word, morphemes, gloss, twoPieces[1], alternateMorphemes.join(","), original + "", source];
+      }
+      self.extractedHeader = header;
+      self.asCSV = rows;
+
+      if (typeof callback === "function") {
+        callback();
+      }
+    }
+  },
+
   uploadFiles: {
     value: function(files) {
       var deferred = Q.defer(),
@@ -13218,10 +13805,18 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
           files = [blob];
 
         }
-
+        self.rawText = "";
         $.each(files, function(i, file) {
           data.append(i, file);
+          if (file.name) {
+            self.rawText = self.rawText + " " + file.name;
+          }
         });
+        if (self.rawText && self.rawText.trim()) {
+          // window.alert("rendering import");
+          self.rawText = self.rawText.trim();
+          self.render();
+        }
 
         // data.append("files", files);
         data.append("token", self.uploadtoken);
@@ -13266,6 +13861,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
               }
               if (messages.length > 0) {
                 self.status = messages.join(", ");
+                deferred.resolve(self.status);
                 // $(self.el).find(".status").html(self.get("status"));
                 // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(messages.join(", "), "alert-danger", "Import:");
               }
@@ -13273,6 +13869,8 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
               console.log(results);
               var message = "Upload might have failed to complete processing on your file(s). Please report this error to us at support@lingsync.org ";
               self.status = message + ": " + JSON.stringify(results);
+              deferred.reject(message);
+
               // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(message, "alert-danger", "Import:");
             }
             // $(self.el).find(".status").html(self.get("status"));
@@ -13303,6 +13901,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
               // if(window && window.appView && typeof window.appView.toastUser === "function") window.appView.toastUser(reason.userFriendlyErrors.join(" "), "alert-danger", "Import:");
               // $(self.el).find(".status").html(self.get("status"));
             }
+            deferred.reject(self.error);
           }
         });
         self.status = "Contacting server...";
@@ -13352,6 +13951,8 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
           fileDetails.filename = fileDetails.fileBaseName + ".mp3";
           fileDetails.URL = new AudioVideo().BASE_SPEECH_URL + "/" + self.corpus.dbname + "/" + fileDetails.fileBaseName + ".mp3";
           self.addAudioVideoFile(fileDetails);
+          self.rawText = self.rawText.trim();
+
         } else {
           self.debug(results);
           fileDetails.textgrid = "Error result was empty. " + results;
@@ -13398,6 +13999,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
         }
         this.parent.audioVideo.add(audioVideo);
         this.parent.saved = "no";
+        this.render();
         // this.asCSV = [];
       }
     }
@@ -13836,7 +14438,7 @@ Import.prototype = Object.create(FieldDBObject.prototype, /** @lends Import.prot
 
 exports.Import = Import;
 
-},{"./../CORS":1,"./../Collection":2,"./../FieldDBObject":4,"./../audio_video/AudioVideo":10,"./../audio_video/AudioVideos":12,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../datum/Datum":25,"./../datum/DatumField":26,"./../datum/DatumFields":27,"./../user/Participant":53,"q":78,"textgrid":80,"underscore":81}],43:[function(require,module,exports){
+},{"./../CORS":1,"./../Collection":2,"./../FieldDBObject":4,"./../audio_video/AudioVideo":10,"./../audio_video/AudioVideos":12,"./../corpus/Corpus":17,"./../data_list/DataList":23,"./../datum/Datum":25,"./../datum/DatumField":26,"./../datum/DatumFields":27,"./../user/Participant":54,"q":80,"textgrid":82,"underscore":83}],43:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject,
   Q = require("q");
 
@@ -14081,8 +14683,8 @@ ContextualizableObject.prototype = Object.create(Object.prototype, /** @lends Co
 });
 exports.ContextualizableObject = ContextualizableObject;
 
-},{"./../FieldDBObject":4,"q":78}],44:[function(require,module,exports){
-var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {};/* globals window */
+},{"./../FieldDBObject":4,"q":80}],44:[function(require,module,exports){
+var global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {};/* globals window, localStorage, navigator */
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var ELanguages = require("./ELanguages").ELanguages;
 var CORS = require("./../CORS").CORS;
@@ -14103,9 +14705,9 @@ var elanguages = require("./elanguages.json");
  * @constructs
  */
 var Contextualizer = function Contextualizer(options) {
-  if(!this._fieldDBtype){
-		this._fieldDBtype = "Contextualizer";
-	}
+  if (!this._fieldDBtype) {
+    this._fieldDBtype = "Contextualizer";
+  }
   this.debug("Constructing Contextualizer ", options);
   // this.debugMode = true;
   var localArguments = arguments;
@@ -14133,6 +14735,17 @@ var Contextualizer = function Contextualizer(options) {
   if (!options || options.alwaysConfirmOkay === undefined) {
     this.warn("By default it will be okay for users to modify global locale strings. IF they are saved this will affect other users.");
     this.alwaysConfirmOkay = true;
+  }
+  if (this.userOverridenLocalePreference) {
+    this.currentLocale = this.userOverridenLocalePreference;
+  } else {
+    try {
+      if (navigator.languages[0].indexOf(this.currentLocale.iso) === -1) {
+        this.currentLocale = navigator.languages[0];
+      }
+    } catch (e) {
+      console.log("not using hte browser's language", e);
+    }
   }
   return this;
 };
@@ -14189,6 +14802,39 @@ Contextualizer.prototype = Object.create(FieldDBObject.prototype, /** @lends Con
 
       this.warn("SETTING LOCALE FROM " + this._currentLocale + " to " + value, this.data);
       this._currentLocale = value;
+    }
+  },
+
+  userOverridenLocalePreference: {
+    get: function() {
+      var userOverridenLocalePreference;
+      try {
+        userOverridenLocalePreference = JSON.parse(localStorage.getItem("_userOverridenLocalePreference"));
+      } catch (e) {
+        this.warn("Localstorage is not available, using the object there will be no persistance across loads", e, this._userOverridenLocalePreference);
+        userOverridenLocalePreference = this._userOverridenLocalePreference;
+      }
+      if (!userOverridenLocalePreference) {
+        return;
+      }
+      return userOverridenLocalePreference;
+    },
+    set: function(value) {
+      if (value) {
+        try {
+          localStorage.setItem("_userOverridenLocalePreference", JSON.stringify(value));
+        } catch (e) {
+          this._userOverridenLocalePreference = value;
+          this.debug("Localstorage is not available, using the object there will be no persistance across loads", e, this._userOverridenLocalePreference);
+        }
+      } else {
+        try {
+          localStorage.removeItem("_userOverridenLocalePreference");
+        } catch (e) {
+          this.debug("Localstorage is not available, using the object there will be no persistance across loads", e, this._userOverridenLocalePreference);
+          delete this._userOverridenLocalePreference;
+        }
+      }
     }
   },
 
@@ -14305,17 +14951,17 @@ Contextualizer.prototype = Object.create(FieldDBObject.prototype, /** @lends Con
         if (typeof message === "object" && message.default) {
           if (this.data[optionalLocaleForThisCall] && this.data[optionalLocaleForThisCall][message.default] && this.data[optionalLocaleForThisCall][message.default].message !== undefined && this.data[optionalLocaleForThisCall][message.default].message) {
             result = this.data[optionalLocaleForThisCall][message.default].message;
-            this.warn("Resolving localization using default contextualization: ", message.default);
+            this.debug("Resolving localization using default contextualization: ", message.default);
             keepTrying = false;
           } else if (this.data[this.defaultLocale.iso] && this.data[this.defaultLocale.iso][message.default] && this.data[this.defaultLocale.iso][message.default].message !== undefined && this.data[this.defaultLocale.iso][message.default].message) {
             result = this.data[this.defaultLocale.iso][message.default].message;
-            this.warn("Resolving localization using default contextualization and default locale: ", message.default);
+            this.debug("Resolving localization using default contextualization and default locale: ", message.default);
             keepTrying = false;
           }
         }
         if (keepTrying && this.data[this.defaultLocale.iso] && this.data[this.defaultLocale.iso][result] && this.data[this.defaultLocale.iso][result].message !== undefined && this.data[this.defaultLocale.iso][result].message) {
           result = this.data[this.defaultLocale.iso][result].message;
-          this.warn("Resolving localization using default: ", result);
+          this.debug("Resolving localization using default: ", result);
         }
       }
 
@@ -14323,6 +14969,7 @@ Contextualizer.prototype = Object.create(FieldDBObject.prototype, /** @lends Con
         FieldDBObject.application.corpus.getCorpusSpecificLocalizations();
         this.requestedCorpusSpecificLocalizations = true;
       }
+      result = result.replace(/^locale_/,"");
       return result;
     }
   },
@@ -14521,7 +15168,7 @@ Contextualizer.prototype = Object.create(FieldDBObject.prototype, /** @lends Con
 
 exports.Contextualizer = Contextualizer;
 
-},{"./../CORS":1,"./../FieldDBObject":4,"./ELanguages":45,"./elanguages.json":46,"./en/messages.json":47,"./es/messages.json":48,"q":78}],45:[function(require,module,exports){
+},{"./../CORS":1,"./../FieldDBObject":4,"./ELanguages":45,"./elanguages.json":46,"./en/messages.json":47,"./es/messages.json":48,"q":80}],45:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
@@ -16434,6 +17081,79 @@ module.exports={
 }
 },{}],49:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
+var Users = require("./../user/Users").Users;
+
+/**
+ * @class Permission
+ * @name  Permission
+ *
+ * @description  The permission class specifies which user (User, Consultant or Bot)
+ *        can do what action to what component in a given corpus.
+ *        The specification needs three arguments: User, Verb, Object
+ *
+ *
+ * @property {UserGeneric} user This is userid or username
+ * @property {String} verb Verb is the action permitted:
+ *        admin: corpus admin. admin can handle permission of other users
+ *        read: can read
+ *        addNew: can add/create new datum etc.
+ *        edit: can edit/change the content of datum etc., including delete datum which is basically just changing datum states
+ *        comment: can comment on datum etc.
+ *        export: can export datum etc.
+ * @property {String} directObject Object is sub-component of the corpus to which
+ *            the action is directed:
+ *        corpus: corpus and corpus details (description etc.)
+ *        datum: datums in the corpus including their states
+ *        session: sessions in the corpus
+ *        datalist: datalists in the corpus
+ *
+ * @extends FieldDBObject
+ */
+var Permission = function Permission(options) {
+  if (!this._fieldDBtype) {
+    this._fieldDBtype = "Permission";
+  }
+  this.debug("Constructing Permission ", options);
+  FieldDBObject.apply(this, arguments);
+};
+
+Permission.prototype = Object.create(FieldDBObject.prototype, /** @lends Permission.prototype */ {
+  constructor: {
+    value: Permission
+  },
+
+  // Internal models: used by the parse function
+  INTERNAL_MODELS: {
+    value: {
+      users: Users
+    }
+  },
+
+  length: {
+    get: function() {
+      if (this.users && this.users.length) {
+        return this.users.length;
+      }
+      return 0;
+    }
+  },
+  map: {
+    get: function() {
+      if (this.users && typeof this.users.map === "function") {
+        var self = this;
+        return function(callback) {
+          return this.users.map.apply(self.users, [callback]);
+        };
+      } else {
+        return undefined;
+      }
+    }
+  }
+});
+exports.Permission = Permission;
+
+},{"./../FieldDBObject":4,"./../user/Users":60}],50:[function(require,module,exports){
+var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
  * @class Search progressively searches a corpus and updates a search/data list
@@ -16496,7 +17216,7 @@ Search.prototype = Object.create(FieldDBObject.prototype, /** @lends Search.prot
 });
 exports.Search = Search;
 
-},{"./../FieldDBObject":4}],50:[function(require,module,exports){
+},{"./../FieldDBObject":4}],51:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 
 /**
@@ -16550,7 +17270,7 @@ InsertUnicode.prototype = Object.create(FieldDBObject.prototype, /** @lends Inse
 });
 exports.InsertUnicode = InsertUnicode;
 
-},{"./../FieldDBObject":4}],51:[function(require,module,exports){
+},{"./../FieldDBObject":4}],52:[function(require,module,exports){
 var Collection = require("./../Collection").Collection;
 var InsertUnicode = require("./UnicodeSymbol").InsertUnicode;
 
@@ -16858,7 +17578,7 @@ InsertUnicodes.prototype = Object.create(Collection.prototype, /** @lends Insert
 });
 exports.InsertUnicodes = InsertUnicodes;
 
-},{"./../Collection":2,"./UnicodeSymbol":50}],52:[function(require,module,exports){
+},{"./../Collection":2,"./UnicodeSymbol":51}],53:[function(require,module,exports){
 var Speaker = require("./Speaker").Speaker;
 var DEFAULT_CORPUS_MODEL = require("./../corpus/corpus.json");
 
@@ -16909,7 +17629,7 @@ Consultant.prototype = Object.create(Speaker.prototype, /** @lends Consultant.pr
 });
 exports.Consultant = Consultant;
 
-},{"./../corpus/corpus.json":21,"./Speaker":54}],53:[function(require,module,exports){
+},{"./../corpus/corpus.json":21,"./Speaker":55}],54:[function(require,module,exports){
 /* globals FieldDB */
 var Speaker = require("./Speaker").Speaker;
 var DEFAULT_CORPUS_MODEL = require("./../corpus/corpus.json");
@@ -16967,7 +17687,7 @@ Participant.prototype = Object.create(Speaker.prototype, /** @lends Participant.
 });
 exports.Participant = Participant;
 
-},{"./../corpus/corpus.json":21,"./Speaker":54}],54:[function(require,module,exports){
+},{"./../corpus/corpus.json":21,"./Speaker":55}],55:[function(require,module,exports){
 var Confidential = require("./../confidentiality_encryption/Confidential").Confidential;
 var DatumFields = require("./../datum/DatumFields").DatumFields;
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
@@ -17135,10 +17855,14 @@ Speaker.prototype = Object.create(UserMask.prototype, /** @lends Speaker.prototy
 
   anonymousCode: {
     get: function() {
-      if (this.fields && this.fields.anonymousCode) {
-        return this.fields.anonymousCode.value.toUpperCase();
-      } else {
-        return;
+      try {
+        if (this.fields && this.fields.anonymousCode) {
+          return this.fields.anonymousCode.value.toUpperCase();
+        } else {
+          return;
+        }
+      } catch (e) {
+        this.warn("there was a problem getting the anonymousCode of this speaker", e);
       }
     },
     set: function(value) {
@@ -17479,7 +18203,7 @@ Speaker.prototype = Object.create(UserMask.prototype, /** @lends Speaker.prototy
 });
 exports.Speaker = Speaker;
 
-},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"./../corpus/corpus.json":21,"./../datum/DatumFields":27,"./UserMask":57}],55:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../confidentiality_encryption/Confidential":16,"./../corpus/corpus.json":21,"./../datum/DatumFields":27,"./UserMask":58}],56:[function(require,module,exports){
 var UserMask = require("./UserMask").UserMask;
 
 /**
@@ -17525,7 +18249,7 @@ Team.prototype = Object.create(UserMask.prototype, /** @lends Team.prototype */ 
       username: "",
       password: "",
       email: "",
-      gravatar: "user/user_gravatar.png",
+      gravatar: "",
       researchInterest: "",
       affiliation: "",
       description: "",
@@ -17561,7 +18285,7 @@ Team.prototype = Object.create(UserMask.prototype, /** @lends Team.prototype */ 
 
 exports.Team = Team;
 
-},{"./UserMask":57}],56:[function(require,module,exports){
+},{"./UserMask":58}],57:[function(require,module,exports){
 var UserMask = require("./UserMask").UserMask;
 var UserPreference = require("./UserPreference").UserPreference;
 var DEFAULT_USER_MODEL = require("./user.json");
@@ -17692,7 +18416,7 @@ User.prototype = Object.create(UserMask.prototype, /** @lends User.prototype */ 
 });
 exports.User = User;
 
-},{"./UserMask":57,"./UserPreference":58,"./user.json":59}],57:[function(require,module,exports){
+},{"./UserMask":58,"./UserPreference":59,"./user.json":61}],58:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var MD5 = require("MD5");
 
@@ -17729,9 +18453,14 @@ UserMask.prototype = Object.create(FieldDBObject.prototype, /** @lends UserMask.
         existingGravatar = existingGravatar.replace("https://secure.gravatar.com/avatar/", "");
         this._gravatar = existingGravatar;
       } else if (existingGravatar.indexOf("user_gravatar.png") > -1) {
-        this._gravatar = "968b8e7fb72b5ffe2915256c28a9414c";
-      } else if (email) {
-        this._gravatar = MD5(email);
+        existingGravatar = "";
+      }
+      if (!existingGravatar) {
+        if (email) {
+          this._gravatar = MD5(email);
+        } else {
+          this._gravatar = "0df69960706112e38332395a4f2e7542";
+        }
       }
       return this._gravatar;
     }
@@ -17971,7 +18700,7 @@ UserMask.prototype = Object.create(FieldDBObject.prototype, /** @lends UserMask.
 
 exports.UserMask = UserMask;
 
-},{"./../FieldDBObject":4,"MD5":60}],58:[function(require,module,exports){
+},{"./../FieldDBObject":4,"MD5":62}],59:[function(require,module,exports){
 var FieldDBObject = require("./../FieldDBObject").FieldDBObject;
 var HotKeys = require("./../hotkey/HotKeys").HotKeys;
 var InsertUnicodes = require("./../unicode/UnicodeSymbols").InsertUnicodes;
@@ -18118,7 +18847,54 @@ UserPreference.prototype = Object.create(FieldDBObject.prototype, /** @lends Use
 });
 exports.UserPreference = UserPreference;
 
-},{"./../FieldDBObject":4,"./../hotkey/HotKeys":39,"./../unicode/UnicodeSymbols":51}],59:[function(require,module,exports){
+},{"./../FieldDBObject":4,"./../hotkey/HotKeys":39,"./../unicode/UnicodeSymbols":52}],60:[function(require,module,exports){
+var Collection = require("./../Collection").Collection;
+var UserMask = require("./UserMask").UserMask;
+
+/**
+ * @class Collection of Datum validation states
+
+ * @name  Users
+ * @description The Users is a minimal customization of the Collection
+ * to add an internal model of UserMask.
+ *
+ * @extends Collection
+ * @constructs
+ */
+var Users = function Users(options) {
+  if (!this._fieldDBtype) {
+    this._fieldDBtype = "Users";
+  }
+  this.debug("Constructing Users ", options);
+  Collection.apply(this, arguments);
+};
+
+Users.prototype = Object.create(Collection.prototype, /** @lends Users.prototype */ {
+  constructor: {
+    value: Users
+  },
+
+  primaryKey: {
+    value: "username"
+  },
+
+  INTERNAL_MODELS: {
+    value: {
+      item: UserMask
+    }
+  },
+
+  sanitizeStringForPrimaryKey: {
+    value: function(value) {
+      return value;
+    }
+  }
+
+});
+
+exports.Users = Users;
+
+},{"./../Collection":2,"./UserMask":58}],61:[function(require,module,exports){
 module.exports={
   "_id": "",
   "jsonType": "user",
@@ -18295,7 +19071,7 @@ module.exports={
   "accessibleDBS": []
 }
 
-},{}],60:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function(){
   var crypt = require('crypt'),
       utf8 = require('charenc').utf8,
@@ -18457,7 +19233,7 @@ var Buffer=require("__browserify_Buffer");(function(){
 
 })();
 
-},{"__browserify_Buffer":65,"charenc":61,"crypt":62}],61:[function(require,module,exports){
+},{"__browserify_Buffer":67,"charenc":63,"crypt":64}],63:[function(require,module,exports){
 var charenc = {
   // UTF-8 encoding
   utf8: {
@@ -18492,7 +19268,7 @@ var charenc = {
 
 module.exports = charenc;
 
-},{}],62:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 (function() {
   var base64map
       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
@@ -18590,7 +19366,7 @@ module.exports = charenc;
   module.exports = crypt;
 })();
 
-},{}],63:[function(require,module,exports){
+},{}],65:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function () {
   "use strict";
 
@@ -18601,7 +19377,7 @@ var Buffer=require("__browserify_Buffer");(function () {
   module.exports = atob;
 }());
 
-},{"__browserify_Buffer":65}],64:[function(require,module,exports){
+},{"__browserify_Buffer":67}],66:[function(require,module,exports){
 //this file was generated
 "use strict"
 var mime = module.exports = {
@@ -20415,7 +21191,7 @@ var mime = module.exports = {
 }
 mime.types.constructor = undefined
 mime.extensions.constructor = undefined
-},{}],65:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 require=(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({"PcZj9L":[function(require,module,exports){
 var TA = require('typedarray')
 var xDataView = typeof DataView === 'undefined'
@@ -22260,7 +23036,7 @@ function packF32(v) { return packIEEE754(v, 8, 23); }
 },{}]},{},[])
 ;;module.exports=require("native-buffer-browserify").Buffer
 
-},{}],66:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -22315,7 +23091,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],67:[function(require,module,exports){
+},{}],69:[function(require,module,exports){
 var Buffer=require("__browserify_Buffer");(function () {
   "use strict";
 
@@ -22335,2697 +23111,25 @@ var Buffer=require("__browserify_Buffer");(function () {
   module.exports = btoa;
 }());
 
-},{"__browserify_Buffer":65}],68:[function(require,module,exports){
-;(function (root, factory, undef) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"), require("./enc-base64"), require("./md5"), require("./evpkdf"), require("./cipher-core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core", "./enc-base64", "./md5", "./evpkdf", "./cipher-core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function () {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var BlockCipher = C_lib.BlockCipher;
-	    var C_algo = C.algo;
-
-	    // Lookup tables
-	    var SBOX = [];
-	    var INV_SBOX = [];
-	    var SUB_MIX_0 = [];
-	    var SUB_MIX_1 = [];
-	    var SUB_MIX_2 = [];
-	    var SUB_MIX_3 = [];
-	    var INV_SUB_MIX_0 = [];
-	    var INV_SUB_MIX_1 = [];
-	    var INV_SUB_MIX_2 = [];
-	    var INV_SUB_MIX_3 = [];
-
-	    // Compute lookup tables
-	    (function () {
-	        // Compute double table
-	        var d = [];
-	        for (var i = 0; i < 256; i++) {
-	            if (i < 128) {
-	                d[i] = i << 1;
-	            } else {
-	                d[i] = (i << 1) ^ 0x11b;
-	            }
-	        }
-
-	        // Walk GF(2^8)
-	        var x = 0;
-	        var xi = 0;
-	        for (var i = 0; i < 256; i++) {
-	            // Compute sbox
-	            var sx = xi ^ (xi << 1) ^ (xi << 2) ^ (xi << 3) ^ (xi << 4);
-	            sx = (sx >>> 8) ^ (sx & 0xff) ^ 0x63;
-	            SBOX[x] = sx;
-	            INV_SBOX[sx] = x;
-
-	            // Compute multiplication
-	            var x2 = d[x];
-	            var x4 = d[x2];
-	            var x8 = d[x4];
-
-	            // Compute sub bytes, mix columns tables
-	            var t = (d[sx] * 0x101) ^ (sx * 0x1010100);
-	            SUB_MIX_0[x] = (t << 24) | (t >>> 8);
-	            SUB_MIX_1[x] = (t << 16) | (t >>> 16);
-	            SUB_MIX_2[x] = (t << 8)  | (t >>> 24);
-	            SUB_MIX_3[x] = t;
-
-	            // Compute inv sub bytes, inv mix columns tables
-	            var t = (x8 * 0x1010101) ^ (x4 * 0x10001) ^ (x2 * 0x101) ^ (x * 0x1010100);
-	            INV_SUB_MIX_0[sx] = (t << 24) | (t >>> 8);
-	            INV_SUB_MIX_1[sx] = (t << 16) | (t >>> 16);
-	            INV_SUB_MIX_2[sx] = (t << 8)  | (t >>> 24);
-	            INV_SUB_MIX_3[sx] = t;
-
-	            // Compute next counter
-	            if (!x) {
-	                x = xi = 1;
-	            } else {
-	                x = x2 ^ d[d[d[x8 ^ x2]]];
-	                xi ^= d[d[xi]];
-	            }
-	        }
-	    }());
-
-	    // Precomputed Rcon lookup
-	    var RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
-
-	    /**
-	     * AES block cipher algorithm.
-	     */
-	    var AES = C_algo.AES = BlockCipher.extend({
-	        _doReset: function () {
-	            // Shortcuts
-	            var key = this._key;
-	            var keyWords = key.words;
-	            var keySize = key.sigBytes / 4;
-
-	            // Compute number of rounds
-	            var nRounds = this._nRounds = keySize + 6
-
-	            // Compute number of key schedule rows
-	            var ksRows = (nRounds + 1) * 4;
-
-	            // Compute key schedule
-	            var keySchedule = this._keySchedule = [];
-	            for (var ksRow = 0; ksRow < ksRows; ksRow++) {
-	                if (ksRow < keySize) {
-	                    keySchedule[ksRow] = keyWords[ksRow];
-	                } else {
-	                    var t = keySchedule[ksRow - 1];
-
-	                    if (!(ksRow % keySize)) {
-	                        // Rot word
-	                        t = (t << 8) | (t >>> 24);
-
-	                        // Sub word
-	                        t = (SBOX[t >>> 24] << 24) | (SBOX[(t >>> 16) & 0xff] << 16) | (SBOX[(t >>> 8) & 0xff] << 8) | SBOX[t & 0xff];
-
-	                        // Mix Rcon
-	                        t ^= RCON[(ksRow / keySize) | 0] << 24;
-	                    } else if (keySize > 6 && ksRow % keySize == 4) {
-	                        // Sub word
-	                        t = (SBOX[t >>> 24] << 24) | (SBOX[(t >>> 16) & 0xff] << 16) | (SBOX[(t >>> 8) & 0xff] << 8) | SBOX[t & 0xff];
-	                    }
-
-	                    keySchedule[ksRow] = keySchedule[ksRow - keySize] ^ t;
-	                }
-	            }
-
-	            // Compute inv key schedule
-	            var invKeySchedule = this._invKeySchedule = [];
-	            for (var invKsRow = 0; invKsRow < ksRows; invKsRow++) {
-	                var ksRow = ksRows - invKsRow;
-
-	                if (invKsRow % 4) {
-	                    var t = keySchedule[ksRow];
-	                } else {
-	                    var t = keySchedule[ksRow - 4];
-	                }
-
-	                if (invKsRow < 4 || ksRow <= 4) {
-	                    invKeySchedule[invKsRow] = t;
-	                } else {
-	                    invKeySchedule[invKsRow] = INV_SUB_MIX_0[SBOX[t >>> 24]] ^ INV_SUB_MIX_1[SBOX[(t >>> 16) & 0xff]] ^
-	                                               INV_SUB_MIX_2[SBOX[(t >>> 8) & 0xff]] ^ INV_SUB_MIX_3[SBOX[t & 0xff]];
-	                }
-	            }
-	        },
-
-	        encryptBlock: function (M, offset) {
-	            this._doCryptBlock(M, offset, this._keySchedule, SUB_MIX_0, SUB_MIX_1, SUB_MIX_2, SUB_MIX_3, SBOX);
-	        },
-
-	        decryptBlock: function (M, offset) {
-	            // Swap 2nd and 4th rows
-	            var t = M[offset + 1];
-	            M[offset + 1] = M[offset + 3];
-	            M[offset + 3] = t;
-
-	            this._doCryptBlock(M, offset, this._invKeySchedule, INV_SUB_MIX_0, INV_SUB_MIX_1, INV_SUB_MIX_2, INV_SUB_MIX_3, INV_SBOX);
-
-	            // Inv swap 2nd and 4th rows
-	            var t = M[offset + 1];
-	            M[offset + 1] = M[offset + 3];
-	            M[offset + 3] = t;
-	        },
-
-	        _doCryptBlock: function (M, offset, keySchedule, SUB_MIX_0, SUB_MIX_1, SUB_MIX_2, SUB_MIX_3, SBOX) {
-	            // Shortcut
-	            var nRounds = this._nRounds;
-
-	            // Get input, add round key
-	            var s0 = M[offset]     ^ keySchedule[0];
-	            var s1 = M[offset + 1] ^ keySchedule[1];
-	            var s2 = M[offset + 2] ^ keySchedule[2];
-	            var s3 = M[offset + 3] ^ keySchedule[3];
-
-	            // Key schedule row counter
-	            var ksRow = 4;
-
-	            // Rounds
-	            for (var round = 1; round < nRounds; round++) {
-	                // Shift rows, sub bytes, mix columns, add round key
-	                var t0 = SUB_MIX_0[s0 >>> 24] ^ SUB_MIX_1[(s1 >>> 16) & 0xff] ^ SUB_MIX_2[(s2 >>> 8) & 0xff] ^ SUB_MIX_3[s3 & 0xff] ^ keySchedule[ksRow++];
-	                var t1 = SUB_MIX_0[s1 >>> 24] ^ SUB_MIX_1[(s2 >>> 16) & 0xff] ^ SUB_MIX_2[(s3 >>> 8) & 0xff] ^ SUB_MIX_3[s0 & 0xff] ^ keySchedule[ksRow++];
-	                var t2 = SUB_MIX_0[s2 >>> 24] ^ SUB_MIX_1[(s3 >>> 16) & 0xff] ^ SUB_MIX_2[(s0 >>> 8) & 0xff] ^ SUB_MIX_3[s1 & 0xff] ^ keySchedule[ksRow++];
-	                var t3 = SUB_MIX_0[s3 >>> 24] ^ SUB_MIX_1[(s0 >>> 16) & 0xff] ^ SUB_MIX_2[(s1 >>> 8) & 0xff] ^ SUB_MIX_3[s2 & 0xff] ^ keySchedule[ksRow++];
-
-	                // Update state
-	                s0 = t0;
-	                s1 = t1;
-	                s2 = t2;
-	                s3 = t3;
-	            }
-
-	            // Shift rows, sub bytes, add round key
-	            var t0 = ((SBOX[s0 >>> 24] << 24) | (SBOX[(s1 >>> 16) & 0xff] << 16) | (SBOX[(s2 >>> 8) & 0xff] << 8) | SBOX[s3 & 0xff]) ^ keySchedule[ksRow++];
-	            var t1 = ((SBOX[s1 >>> 24] << 24) | (SBOX[(s2 >>> 16) & 0xff] << 16) | (SBOX[(s3 >>> 8) & 0xff] << 8) | SBOX[s0 & 0xff]) ^ keySchedule[ksRow++];
-	            var t2 = ((SBOX[s2 >>> 24] << 24) | (SBOX[(s3 >>> 16) & 0xff] << 16) | (SBOX[(s0 >>> 8) & 0xff] << 8) | SBOX[s1 & 0xff]) ^ keySchedule[ksRow++];
-	            var t3 = ((SBOX[s3 >>> 24] << 24) | (SBOX[(s0 >>> 16) & 0xff] << 16) | (SBOX[(s1 >>> 8) & 0xff] << 8) | SBOX[s2 & 0xff]) ^ keySchedule[ksRow++];
-
-	            // Set output
-	            M[offset]     = t0;
-	            M[offset + 1] = t1;
-	            M[offset + 2] = t2;
-	            M[offset + 3] = t3;
-	        },
-
-	        keySize: 256/32
-	    });
-
-	    /**
-	     * Shortcut functions to the cipher's object interface.
-	     *
-	     * @example
-	     *
-	     *     var ciphertext = CryptoJS.AES.encrypt(message, key, cfg);
-	     *     var plaintext  = CryptoJS.AES.decrypt(ciphertext, key, cfg);
-	     */
-	    C.AES = BlockCipher._createHelper(AES);
-	}());
-
-
-	return CryptoJS.AES;
-
-}));
-},{"./cipher-core":69,"./core":70,"./enc-base64":71,"./evpkdf":73,"./md5":75}],69:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	/**
-	 * Cipher core components.
-	 */
-	CryptoJS.lib.Cipher || (function (undefined) {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var Base = C_lib.Base;
-	    var WordArray = C_lib.WordArray;
-	    var BufferedBlockAlgorithm = C_lib.BufferedBlockAlgorithm;
-	    var C_enc = C.enc;
-	    var Utf8 = C_enc.Utf8;
-	    var Base64 = C_enc.Base64;
-	    var C_algo = C.algo;
-	    var EvpKDF = C_algo.EvpKDF;
-
-	    /**
-	     * Abstract base cipher template.
-	     *
-	     * @property {number} keySize This cipher's key size. Default: 4 (128 bits)
-	     * @property {number} ivSize This cipher's IV size. Default: 4 (128 bits)
-	     * @property {number} _ENC_XFORM_MODE A constant representing encryption mode.
-	     * @property {number} _DEC_XFORM_MODE A constant representing decryption mode.
-	     */
-	    var Cipher = C_lib.Cipher = BufferedBlockAlgorithm.extend({
-	        /**
-	         * Configuration options.
-	         *
-	         * @property {WordArray} iv The IV to use for this operation.
-	         */
-	        cfg: Base.extend(),
-
-	        /**
-	         * Creates this cipher in encryption mode.
-	         *
-	         * @param {WordArray} key The key.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {Cipher} A cipher instance.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var cipher = CryptoJS.algo.AES.createEncryptor(keyWordArray, { iv: ivWordArray });
-	         */
-	        createEncryptor: function (key, cfg) {
-	            return this.create(this._ENC_XFORM_MODE, key, cfg);
-	        },
-
-	        /**
-	         * Creates this cipher in decryption mode.
-	         *
-	         * @param {WordArray} key The key.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {Cipher} A cipher instance.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var cipher = CryptoJS.algo.AES.createDecryptor(keyWordArray, { iv: ivWordArray });
-	         */
-	        createDecryptor: function (key, cfg) {
-	            return this.create(this._DEC_XFORM_MODE, key, cfg);
-	        },
-
-	        /**
-	         * Initializes a newly created cipher.
-	         *
-	         * @param {number} xformMode Either the encryption or decryption transormation mode constant.
-	         * @param {WordArray} key The key.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @example
-	         *
-	         *     var cipher = CryptoJS.algo.AES.create(CryptoJS.algo.AES._ENC_XFORM_MODE, keyWordArray, { iv: ivWordArray });
-	         */
-	        init: function (xformMode, key, cfg) {
-	            // Apply config defaults
-	            this.cfg = this.cfg.extend(cfg);
-
-	            // Store transform mode and key
-	            this._xformMode = xformMode;
-	            this._key = key;
-
-	            // Set initial values
-	            this.reset();
-	        },
-
-	        /**
-	         * Resets this cipher to its initial state.
-	         *
-	         * @example
-	         *
-	         *     cipher.reset();
-	         */
-	        reset: function () {
-	            // Reset data buffer
-	            BufferedBlockAlgorithm.reset.call(this);
-
-	            // Perform concrete-cipher logic
-	            this._doReset();
-	        },
-
-	        /**
-	         * Adds data to be encrypted or decrypted.
-	         *
-	         * @param {WordArray|string} dataUpdate The data to encrypt or decrypt.
-	         *
-	         * @return {WordArray} The data after processing.
-	         *
-	         * @example
-	         *
-	         *     var encrypted = cipher.process('data');
-	         *     var encrypted = cipher.process(wordArray);
-	         */
-	        process: function (dataUpdate) {
-	            // Append
-	            this._append(dataUpdate);
-
-	            // Process available blocks
-	            return this._process();
-	        },
-
-	        /**
-	         * Finalizes the encryption or decryption process.
-	         * Note that the finalize operation is effectively a destructive, read-once operation.
-	         *
-	         * @param {WordArray|string} dataUpdate The final data to encrypt or decrypt.
-	         *
-	         * @return {WordArray} The data after final processing.
-	         *
-	         * @example
-	         *
-	         *     var encrypted = cipher.finalize();
-	         *     var encrypted = cipher.finalize('data');
-	         *     var encrypted = cipher.finalize(wordArray);
-	         */
-	        finalize: function (dataUpdate) {
-	            // Final data update
-	            if (dataUpdate) {
-	                this._append(dataUpdate);
-	            }
-
-	            // Perform concrete-cipher logic
-	            var finalProcessedData = this._doFinalize();
-
-	            return finalProcessedData;
-	        },
-
-	        keySize: 128/32,
-
-	        ivSize: 128/32,
-
-	        _ENC_XFORM_MODE: 1,
-
-	        _DEC_XFORM_MODE: 2,
-
-	        /**
-	         * Creates shortcut functions to a cipher's object interface.
-	         *
-	         * @param {Cipher} cipher The cipher to create a helper for.
-	         *
-	         * @return {Object} An object with encrypt and decrypt shortcut functions.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var AES = CryptoJS.lib.Cipher._createHelper(CryptoJS.algo.AES);
-	         */
-	        _createHelper: (function () {
-	            function selectCipherStrategy(key) {
-	                if (typeof key == 'string') {
-	                    return PasswordBasedCipher;
-	                } else {
-	                    return SerializableCipher;
-	                }
-	            }
-
-	            return function (cipher) {
-	                return {
-	                    encrypt: function (message, key, cfg) {
-	                        return selectCipherStrategy(key).encrypt(cipher, message, key, cfg);
-	                    },
-
-	                    decrypt: function (ciphertext, key, cfg) {
-	                        return selectCipherStrategy(key).decrypt(cipher, ciphertext, key, cfg);
-	                    }
-	                };
-	            };
-	        }())
-	    });
-
-	    /**
-	     * Abstract base stream cipher template.
-	     *
-	     * @property {number} blockSize The number of 32-bit words this cipher operates on. Default: 1 (32 bits)
-	     */
-	    var StreamCipher = C_lib.StreamCipher = Cipher.extend({
-	        _doFinalize: function () {
-	            // Process partial blocks
-	            var finalProcessedBlocks = this._process(!!'flush');
-
-	            return finalProcessedBlocks;
-	        },
-
-	        blockSize: 1
-	    });
-
-	    /**
-	     * Mode namespace.
-	     */
-	    var C_mode = C.mode = {};
-
-	    /**
-	     * Abstract base block cipher mode template.
-	     */
-	    var BlockCipherMode = C_lib.BlockCipherMode = Base.extend({
-	        /**
-	         * Creates this mode for encryption.
-	         *
-	         * @param {Cipher} cipher A block cipher instance.
-	         * @param {Array} iv The IV words.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var mode = CryptoJS.mode.CBC.createEncryptor(cipher, iv.words);
-	         */
-	        createEncryptor: function (cipher, iv) {
-	            return this.Encryptor.create(cipher, iv);
-	        },
-
-	        /**
-	         * Creates this mode for decryption.
-	         *
-	         * @param {Cipher} cipher A block cipher instance.
-	         * @param {Array} iv The IV words.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var mode = CryptoJS.mode.CBC.createDecryptor(cipher, iv.words);
-	         */
-	        createDecryptor: function (cipher, iv) {
-	            return this.Decryptor.create(cipher, iv);
-	        },
-
-	        /**
-	         * Initializes a newly created mode.
-	         *
-	         * @param {Cipher} cipher A block cipher instance.
-	         * @param {Array} iv The IV words.
-	         *
-	         * @example
-	         *
-	         *     var mode = CryptoJS.mode.CBC.Encryptor.create(cipher, iv.words);
-	         */
-	        init: function (cipher, iv) {
-	            this._cipher = cipher;
-	            this._iv = iv;
-	        }
-	    });
-
-	    /**
-	     * Cipher Block Chaining mode.
-	     */
-	    var CBC = C_mode.CBC = (function () {
-	        /**
-	         * Abstract base CBC mode.
-	         */
-	        var CBC = BlockCipherMode.extend();
-
-	        /**
-	         * CBC encryptor.
-	         */
-	        CBC.Encryptor = CBC.extend({
-	            /**
-	             * Processes the data block at offset.
-	             *
-	             * @param {Array} words The data words to operate on.
-	             * @param {number} offset The offset where the block starts.
-	             *
-	             * @example
-	             *
-	             *     mode.processBlock(data.words, offset);
-	             */
-	            processBlock: function (words, offset) {
-	                // Shortcuts
-	                var cipher = this._cipher;
-	                var blockSize = cipher.blockSize;
-
-	                // XOR and encrypt
-	                xorBlock.call(this, words, offset, blockSize);
-	                cipher.encryptBlock(words, offset);
-
-	                // Remember this block to use with next block
-	                this._prevBlock = words.slice(offset, offset + blockSize);
-	            }
-	        });
-
-	        /**
-	         * CBC decryptor.
-	         */
-	        CBC.Decryptor = CBC.extend({
-	            /**
-	             * Processes the data block at offset.
-	             *
-	             * @param {Array} words The data words to operate on.
-	             * @param {number} offset The offset where the block starts.
-	             *
-	             * @example
-	             *
-	             *     mode.processBlock(data.words, offset);
-	             */
-	            processBlock: function (words, offset) {
-	                // Shortcuts
-	                var cipher = this._cipher;
-	                var blockSize = cipher.blockSize;
-
-	                // Remember this block to use with next block
-	                var thisBlock = words.slice(offset, offset + blockSize);
-
-	                // Decrypt and XOR
-	                cipher.decryptBlock(words, offset);
-	                xorBlock.call(this, words, offset, blockSize);
-
-	                // This block becomes the previous block
-	                this._prevBlock = thisBlock;
-	            }
-	        });
-
-	        function xorBlock(words, offset, blockSize) {
-	            // Shortcut
-	            var iv = this._iv;
-
-	            // Choose mixing block
-	            if (iv) {
-	                var block = iv;
-
-	                // Remove IV for subsequent blocks
-	                this._iv = undefined;
-	            } else {
-	                var block = this._prevBlock;
-	            }
-
-	            // XOR blocks
-	            for (var i = 0; i < blockSize; i++) {
-	                words[offset + i] ^= block[i];
-	            }
-	        }
-
-	        return CBC;
-	    }());
-
-	    /**
-	     * Padding namespace.
-	     */
-	    var C_pad = C.pad = {};
-
-	    /**
-	     * PKCS #5/7 padding strategy.
-	     */
-	    var Pkcs7 = C_pad.Pkcs7 = {
-	        /**
-	         * Pads data using the algorithm defined in PKCS #5/7.
-	         *
-	         * @param {WordArray} data The data to pad.
-	         * @param {number} blockSize The multiple that the data should be padded to.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     CryptoJS.pad.Pkcs7.pad(wordArray, 4);
-	         */
-	        pad: function (data, blockSize) {
-	            // Shortcut
-	            var blockSizeBytes = blockSize * 4;
-
-	            // Count padding bytes
-	            var nPaddingBytes = blockSizeBytes - data.sigBytes % blockSizeBytes;
-
-	            // Create padding word
-	            var paddingWord = (nPaddingBytes << 24) | (nPaddingBytes << 16) | (nPaddingBytes << 8) | nPaddingBytes;
-
-	            // Create padding
-	            var paddingWords = [];
-	            for (var i = 0; i < nPaddingBytes; i += 4) {
-	                paddingWords.push(paddingWord);
-	            }
-	            var padding = WordArray.create(paddingWords, nPaddingBytes);
-
-	            // Add padding
-	            data.concat(padding);
-	        },
-
-	        /**
-	         * Unpads data that had been padded using the algorithm defined in PKCS #5/7.
-	         *
-	         * @param {WordArray} data The data to unpad.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     CryptoJS.pad.Pkcs7.unpad(wordArray);
-	         */
-	        unpad: function (data) {
-	            // Get number of padding bytes from last byte
-	            var nPaddingBytes = data.words[(data.sigBytes - 1) >>> 2] & 0xff;
-
-	            // Remove padding
-	            data.sigBytes -= nPaddingBytes;
-	        }
-	    };
-
-	    /**
-	     * Abstract base block cipher template.
-	     *
-	     * @property {number} blockSize The number of 32-bit words this cipher operates on. Default: 4 (128 bits)
-	     */
-	    var BlockCipher = C_lib.BlockCipher = Cipher.extend({
-	        /**
-	         * Configuration options.
-	         *
-	         * @property {Mode} mode The block mode to use. Default: CBC
-	         * @property {Padding} padding The padding strategy to use. Default: Pkcs7
-	         */
-	        cfg: Cipher.cfg.extend({
-	            mode: CBC,
-	            padding: Pkcs7
-	        }),
-
-	        reset: function () {
-	            // Reset cipher
-	            Cipher.reset.call(this);
-
-	            // Shortcuts
-	            var cfg = this.cfg;
-	            var iv = cfg.iv;
-	            var mode = cfg.mode;
-
-	            // Reset block mode
-	            if (this._xformMode == this._ENC_XFORM_MODE) {
-	                var modeCreator = mode.createEncryptor;
-	            } else /* if (this._xformMode == this._DEC_XFORM_MODE) */ {
-	                var modeCreator = mode.createDecryptor;
-
-	                // Keep at least one block in the buffer for unpadding
-	                this._minBufferSize = 1;
-	            }
-	            this._mode = modeCreator.call(mode, this, iv && iv.words);
-	        },
-
-	        _doProcessBlock: function (words, offset) {
-	            this._mode.processBlock(words, offset);
-	        },
-
-	        _doFinalize: function () {
-	            // Shortcut
-	            var padding = this.cfg.padding;
-
-	            // Finalize
-	            if (this._xformMode == this._ENC_XFORM_MODE) {
-	                // Pad data
-	                padding.pad(this._data, this.blockSize);
-
-	                // Process final blocks
-	                var finalProcessedBlocks = this._process(!!'flush');
-	            } else /* if (this._xformMode == this._DEC_XFORM_MODE) */ {
-	                // Process final blocks
-	                var finalProcessedBlocks = this._process(!!'flush');
-
-	                // Unpad data
-	                padding.unpad(finalProcessedBlocks);
-	            }
-
-	            return finalProcessedBlocks;
-	        },
-
-	        blockSize: 128/32
-	    });
-
-	    /**
-	     * A collection of cipher parameters.
-	     *
-	     * @property {WordArray} ciphertext The raw ciphertext.
-	     * @property {WordArray} key The key to this ciphertext.
-	     * @property {WordArray} iv The IV used in the ciphering operation.
-	     * @property {WordArray} salt The salt used with a key derivation function.
-	     * @property {Cipher} algorithm The cipher algorithm.
-	     * @property {Mode} mode The block mode used in the ciphering operation.
-	     * @property {Padding} padding The padding scheme used in the ciphering operation.
-	     * @property {number} blockSize The block size of the cipher.
-	     * @property {Format} formatter The default formatting strategy to convert this cipher params object to a string.
-	     */
-	    var CipherParams = C_lib.CipherParams = Base.extend({
-	        /**
-	         * Initializes a newly created cipher params object.
-	         *
-	         * @param {Object} cipherParams An object with any of the possible cipher parameters.
-	         *
-	         * @example
-	         *
-	         *     var cipherParams = CryptoJS.lib.CipherParams.create({
-	         *         ciphertext: ciphertextWordArray,
-	         *         key: keyWordArray,
-	         *         iv: ivWordArray,
-	         *         salt: saltWordArray,
-	         *         algorithm: CryptoJS.algo.AES,
-	         *         mode: CryptoJS.mode.CBC,
-	         *         padding: CryptoJS.pad.PKCS7,
-	         *         blockSize: 4,
-	         *         formatter: CryptoJS.format.OpenSSL
-	         *     });
-	         */
-	        init: function (cipherParams) {
-	            this.mixIn(cipherParams);
-	        },
-
-	        /**
-	         * Converts this cipher params object to a string.
-	         *
-	         * @param {Format} formatter (Optional) The formatting strategy to use.
-	         *
-	         * @return {string} The stringified cipher params.
-	         *
-	         * @throws Error If neither the formatter nor the default formatter is set.
-	         *
-	         * @example
-	         *
-	         *     var string = cipherParams + '';
-	         *     var string = cipherParams.toString();
-	         *     var string = cipherParams.toString(CryptoJS.format.OpenSSL);
-	         */
-	        toString: function (formatter) {
-	            return (formatter || this.formatter).stringify(this);
-	        }
-	    });
-
-	    /**
-	     * Format namespace.
-	     */
-	    var C_format = C.format = {};
-
-	    /**
-	     * OpenSSL formatting strategy.
-	     */
-	    var OpenSSLFormatter = C_format.OpenSSL = {
-	        /**
-	         * Converts a cipher params object to an OpenSSL-compatible string.
-	         *
-	         * @param {CipherParams} cipherParams The cipher params object.
-	         *
-	         * @return {string} The OpenSSL-compatible string.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var openSSLString = CryptoJS.format.OpenSSL.stringify(cipherParams);
-	         */
-	        stringify: function (cipherParams) {
-	            // Shortcuts
-	            var ciphertext = cipherParams.ciphertext;
-	            var salt = cipherParams.salt;
-
-	            // Format
-	            if (salt) {
-	                var wordArray = WordArray.create([0x53616c74, 0x65645f5f]).concat(salt).concat(ciphertext);
-	            } else {
-	                var wordArray = ciphertext;
-	            }
-
-	            return wordArray.toString(Base64);
-	        },
-
-	        /**
-	         * Converts an OpenSSL-compatible string to a cipher params object.
-	         *
-	         * @param {string} openSSLStr The OpenSSL-compatible string.
-	         *
-	         * @return {CipherParams} The cipher params object.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var cipherParams = CryptoJS.format.OpenSSL.parse(openSSLString);
-	         */
-	        parse: function (openSSLStr) {
-	            // Parse base64
-	            var ciphertext = Base64.parse(openSSLStr);
-
-	            // Shortcut
-	            var ciphertextWords = ciphertext.words;
-
-	            // Test for salt
-	            if (ciphertextWords[0] == 0x53616c74 && ciphertextWords[1] == 0x65645f5f) {
-	                // Extract salt
-	                var salt = WordArray.create(ciphertextWords.slice(2, 4));
-
-	                // Remove salt from ciphertext
-	                ciphertextWords.splice(0, 4);
-	                ciphertext.sigBytes -= 16;
-	            }
-
-	            return CipherParams.create({ ciphertext: ciphertext, salt: salt });
-	        }
-	    };
-
-	    /**
-	     * A cipher wrapper that returns ciphertext as a serializable cipher params object.
-	     */
-	    var SerializableCipher = C_lib.SerializableCipher = Base.extend({
-	        /**
-	         * Configuration options.
-	         *
-	         * @property {Formatter} format The formatting strategy to convert cipher param objects to and from a string. Default: OpenSSL
-	         */
-	        cfg: Base.extend({
-	            format: OpenSSLFormatter
-	        }),
-
-	        /**
-	         * Encrypts a message.
-	         *
-	         * @param {Cipher} cipher The cipher algorithm to use.
-	         * @param {WordArray|string} message The message to encrypt.
-	         * @param {WordArray} key The key.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {CipherParams} A cipher params object.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var ciphertextParams = CryptoJS.lib.SerializableCipher.encrypt(CryptoJS.algo.AES, message, key);
-	         *     var ciphertextParams = CryptoJS.lib.SerializableCipher.encrypt(CryptoJS.algo.AES, message, key, { iv: iv });
-	         *     var ciphertextParams = CryptoJS.lib.SerializableCipher.encrypt(CryptoJS.algo.AES, message, key, { iv: iv, format: CryptoJS.format.OpenSSL });
-	         */
-	        encrypt: function (cipher, message, key, cfg) {
-	            // Apply config defaults
-	            cfg = this.cfg.extend(cfg);
-
-	            // Encrypt
-	            var encryptor = cipher.createEncryptor(key, cfg);
-	            var ciphertext = encryptor.finalize(message);
-
-	            // Shortcut
-	            var cipherCfg = encryptor.cfg;
-
-	            // Create and return serializable cipher params
-	            return CipherParams.create({
-	                ciphertext: ciphertext,
-	                key: key,
-	                iv: cipherCfg.iv,
-	                algorithm: cipher,
-	                mode: cipherCfg.mode,
-	                padding: cipherCfg.padding,
-	                blockSize: cipher.blockSize,
-	                formatter: cfg.format
-	            });
-	        },
-
-	        /**
-	         * Decrypts serialized ciphertext.
-	         *
-	         * @param {Cipher} cipher The cipher algorithm to use.
-	         * @param {CipherParams|string} ciphertext The ciphertext to decrypt.
-	         * @param {WordArray} key The key.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {WordArray} The plaintext.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var plaintext = CryptoJS.lib.SerializableCipher.decrypt(CryptoJS.algo.AES, formattedCiphertext, key, { iv: iv, format: CryptoJS.format.OpenSSL });
-	         *     var plaintext = CryptoJS.lib.SerializableCipher.decrypt(CryptoJS.algo.AES, ciphertextParams, key, { iv: iv, format: CryptoJS.format.OpenSSL });
-	         */
-	        decrypt: function (cipher, ciphertext, key, cfg) {
-	            // Apply config defaults
-	            cfg = this.cfg.extend(cfg);
-
-	            // Convert string to CipherParams
-	            ciphertext = this._parse(ciphertext, cfg.format);
-
-	            // Decrypt
-	            var plaintext = cipher.createDecryptor(key, cfg).finalize(ciphertext.ciphertext);
-
-	            return plaintext;
-	        },
-
-	        /**
-	         * Converts serialized ciphertext to CipherParams,
-	         * else assumed CipherParams already and returns ciphertext unchanged.
-	         *
-	         * @param {CipherParams|string} ciphertext The ciphertext.
-	         * @param {Formatter} format The formatting strategy to use to parse serialized ciphertext.
-	         *
-	         * @return {CipherParams} The unserialized ciphertext.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var ciphertextParams = CryptoJS.lib.SerializableCipher._parse(ciphertextStringOrParams, format);
-	         */
-	        _parse: function (ciphertext, format) {
-	            if (typeof ciphertext == 'string') {
-	                return format.parse(ciphertext, this);
-	            } else {
-	                return ciphertext;
-	            }
-	        }
-	    });
-
-	    /**
-	     * Key derivation function namespace.
-	     */
-	    var C_kdf = C.kdf = {};
-
-	    /**
-	     * OpenSSL key derivation function.
-	     */
-	    var OpenSSLKdf = C_kdf.OpenSSL = {
-	        /**
-	         * Derives a key and IV from a password.
-	         *
-	         * @param {string} password The password to derive from.
-	         * @param {number} keySize The size in words of the key to generate.
-	         * @param {number} ivSize The size in words of the IV to generate.
-	         * @param {WordArray|string} salt (Optional) A 64-bit salt to use. If omitted, a salt will be generated randomly.
-	         *
-	         * @return {CipherParams} A cipher params object with the key, IV, and salt.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var derivedParams = CryptoJS.kdf.OpenSSL.execute('Password', 256/32, 128/32);
-	         *     var derivedParams = CryptoJS.kdf.OpenSSL.execute('Password', 256/32, 128/32, 'saltsalt');
-	         */
-	        execute: function (password, keySize, ivSize, salt) {
-	            // Generate random salt
-	            if (!salt) {
-	                salt = WordArray.random(64/8);
-	            }
-
-	            // Derive key and IV
-	            var key = EvpKDF.create({ keySize: keySize + ivSize }).compute(password, salt);
-
-	            // Separate key and IV
-	            var iv = WordArray.create(key.words.slice(keySize), ivSize * 4);
-	            key.sigBytes = keySize * 4;
-
-	            // Return params
-	            return CipherParams.create({ key: key, iv: iv, salt: salt });
-	        }
-	    };
-
-	    /**
-	     * A serializable cipher wrapper that derives the key from a password,
-	     * and returns ciphertext as a serializable cipher params object.
-	     */
-	    var PasswordBasedCipher = C_lib.PasswordBasedCipher = SerializableCipher.extend({
-	        /**
-	         * Configuration options.
-	         *
-	         * @property {KDF} kdf The key derivation function to use to generate a key and IV from a password. Default: OpenSSL
-	         */
-	        cfg: SerializableCipher.cfg.extend({
-	            kdf: OpenSSLKdf
-	        }),
-
-	        /**
-	         * Encrypts a message using a password.
-	         *
-	         * @param {Cipher} cipher The cipher algorithm to use.
-	         * @param {WordArray|string} message The message to encrypt.
-	         * @param {string} password The password.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {CipherParams} A cipher params object.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var ciphertextParams = CryptoJS.lib.PasswordBasedCipher.encrypt(CryptoJS.algo.AES, message, 'password');
-	         *     var ciphertextParams = CryptoJS.lib.PasswordBasedCipher.encrypt(CryptoJS.algo.AES, message, 'password', { format: CryptoJS.format.OpenSSL });
-	         */
-	        encrypt: function (cipher, message, password, cfg) {
-	            // Apply config defaults
-	            cfg = this.cfg.extend(cfg);
-
-	            // Derive key and other params
-	            var derivedParams = cfg.kdf.execute(password, cipher.keySize, cipher.ivSize);
-
-	            // Add IV to config
-	            cfg.iv = derivedParams.iv;
-
-	            // Encrypt
-	            var ciphertext = SerializableCipher.encrypt.call(this, cipher, message, derivedParams.key, cfg);
-
-	            // Mix in derived params
-	            ciphertext.mixIn(derivedParams);
-
-	            return ciphertext;
-	        },
-
-	        /**
-	         * Decrypts serialized ciphertext using a password.
-	         *
-	         * @param {Cipher} cipher The cipher algorithm to use.
-	         * @param {CipherParams|string} ciphertext The ciphertext to decrypt.
-	         * @param {string} password The password.
-	         * @param {Object} cfg (Optional) The configuration options to use for this operation.
-	         *
-	         * @return {WordArray} The plaintext.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var plaintext = CryptoJS.lib.PasswordBasedCipher.decrypt(CryptoJS.algo.AES, formattedCiphertext, 'password', { format: CryptoJS.format.OpenSSL });
-	         *     var plaintext = CryptoJS.lib.PasswordBasedCipher.decrypt(CryptoJS.algo.AES, ciphertextParams, 'password', { format: CryptoJS.format.OpenSSL });
-	         */
-	        decrypt: function (cipher, ciphertext, password, cfg) {
-	            // Apply config defaults
-	            cfg = this.cfg.extend(cfg);
-
-	            // Convert string to CipherParams
-	            ciphertext = this._parse(ciphertext, cfg.format);
-
-	            // Derive key and other params
-	            var derivedParams = cfg.kdf.execute(password, cipher.keySize, cipher.ivSize, ciphertext.salt);
-
-	            // Add IV to config
-	            cfg.iv = derivedParams.iv;
-
-	            // Decrypt
-	            var plaintext = SerializableCipher.decrypt.call(this, cipher, ciphertext, derivedParams.key, cfg);
-
-	            return plaintext;
-	        }
-	    });
-	}());
-
-
-}));
-},{"./core":70}],70:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory();
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define([], factory);
-	}
-	else {
-		// Global (browser)
-		root.CryptoJS = factory();
-	}
-}(this, function () {
-
-	/**
-	 * CryptoJS core components.
-	 */
-	var CryptoJS = CryptoJS || (function (Math, undefined) {
-	    /**
-	     * CryptoJS namespace.
-	     */
-	    var C = {};
-
-	    /**
-	     * Library namespace.
-	     */
-	    var C_lib = C.lib = {};
-
-	    /**
-	     * Base object for prototypal inheritance.
-	     */
-	    var Base = C_lib.Base = (function () {
-	        function F() {}
-
-	        return {
-	            /**
-	             * Creates a new object that inherits from this object.
-	             *
-	             * @param {Object} overrides Properties to copy into the new object.
-	             *
-	             * @return {Object} The new object.
-	             *
-	             * @static
-	             *
-	             * @example
-	             *
-	             *     var MyType = CryptoJS.lib.Base.extend({
-	             *         field: 'value',
-	             *
-	             *         method: function () {
-	             *         }
-	             *     });
-	             */
-	            extend: function (overrides) {
-	                // Spawn
-	                F.prototype = this;
-	                var subtype = new F();
-
-	                // Augment
-	                if (overrides) {
-	                    subtype.mixIn(overrides);
-	                }
-
-	                // Create default initializer
-	                if (!subtype.hasOwnProperty('init')) {
-	                    subtype.init = function () {
-	                        subtype.$super.init.apply(this, arguments);
-	                    };
-	                }
-
-	                // Initializer's prototype is the subtype object
-	                subtype.init.prototype = subtype;
-
-	                // Reference supertype
-	                subtype.$super = this;
-
-	                return subtype;
-	            },
-
-	            /**
-	             * Extends this object and runs the init method.
-	             * Arguments to create() will be passed to init().
-	             *
-	             * @return {Object} The new object.
-	             *
-	             * @static
-	             *
-	             * @example
-	             *
-	             *     var instance = MyType.create();
-	             */
-	            create: function () {
-	                var instance = this.extend();
-	                instance.init.apply(instance, arguments);
-
-	                return instance;
-	            },
-
-	            /**
-	             * Initializes a newly created object.
-	             * Override this method to add some logic when your objects are created.
-	             *
-	             * @example
-	             *
-	             *     var MyType = CryptoJS.lib.Base.extend({
-	             *         init: function () {
-	             *             // ...
-	             *         }
-	             *     });
-	             */
-	            init: function () {
-	            },
-
-	            /**
-	             * Copies properties into this object.
-	             *
-	             * @param {Object} properties The properties to mix in.
-	             *
-	             * @example
-	             *
-	             *     MyType.mixIn({
-	             *         field: 'value'
-	             *     });
-	             */
-	            mixIn: function (properties) {
-	                for (var propertyName in properties) {
-	                    if (properties.hasOwnProperty(propertyName)) {
-	                        this[propertyName] = properties[propertyName];
-	                    }
-	                }
-
-	                // IE won't copy toString using the loop above
-	                if (properties.hasOwnProperty('toString')) {
-	                    this.toString = properties.toString;
-	                }
-	            },
-
-	            /**
-	             * Creates a copy of this object.
-	             *
-	             * @return {Object} The clone.
-	             *
-	             * @example
-	             *
-	             *     var clone = instance.clone();
-	             */
-	            clone: function () {
-	                return this.init.prototype.extend(this);
-	            }
-	        };
-	    }());
-
-	    /**
-	     * An array of 32-bit words.
-	     *
-	     * @property {Array} words The array of 32-bit words.
-	     * @property {number} sigBytes The number of significant bytes in this word array.
-	     */
-	    var WordArray = C_lib.WordArray = Base.extend({
-	        /**
-	         * Initializes a newly created word array.
-	         *
-	         * @param {Array} words (Optional) An array of 32-bit words.
-	         * @param {number} sigBytes (Optional) The number of significant bytes in the words.
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.lib.WordArray.create();
-	         *     var wordArray = CryptoJS.lib.WordArray.create([0x00010203, 0x04050607]);
-	         *     var wordArray = CryptoJS.lib.WordArray.create([0x00010203, 0x04050607], 6);
-	         */
-	        init: function (words, sigBytes) {
-	            words = this.words = words || [];
-
-	            if (sigBytes != undefined) {
-	                this.sigBytes = sigBytes;
-	            } else {
-	                this.sigBytes = words.length * 4;
-	            }
-	        },
-
-	        /**
-	         * Converts this word array to a string.
-	         *
-	         * @param {Encoder} encoder (Optional) The encoding strategy to use. Default: CryptoJS.enc.Hex
-	         *
-	         * @return {string} The stringified word array.
-	         *
-	         * @example
-	         *
-	         *     var string = wordArray + '';
-	         *     var string = wordArray.toString();
-	         *     var string = wordArray.toString(CryptoJS.enc.Utf8);
-	         */
-	        toString: function (encoder) {
-	            return (encoder || Hex).stringify(this);
-	        },
-
-	        /**
-	         * Concatenates a word array to this word array.
-	         *
-	         * @param {WordArray} wordArray The word array to append.
-	         *
-	         * @return {WordArray} This word array.
-	         *
-	         * @example
-	         *
-	         *     wordArray1.concat(wordArray2);
-	         */
-	        concat: function (wordArray) {
-	            // Shortcuts
-	            var thisWords = this.words;
-	            var thatWords = wordArray.words;
-	            var thisSigBytes = this.sigBytes;
-	            var thatSigBytes = wordArray.sigBytes;
-
-	            // Clamp excess bits
-	            this.clamp();
-
-	            // Concat
-	            if (thisSigBytes % 4) {
-	                // Copy one byte at a time
-	                for (var i = 0; i < thatSigBytes; i++) {
-	                    var thatByte = (thatWords[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
-	                    thisWords[(thisSigBytes + i) >>> 2] |= thatByte << (24 - ((thisSigBytes + i) % 4) * 8);
-	                }
-	            } else if (thatWords.length > 0xffff) {
-	                // Copy one word at a time
-	                for (var i = 0; i < thatSigBytes; i += 4) {
-	                    thisWords[(thisSigBytes + i) >>> 2] = thatWords[i >>> 2];
-	                }
-	            } else {
-	                // Copy all words at once
-	                thisWords.push.apply(thisWords, thatWords);
-	            }
-	            this.sigBytes += thatSigBytes;
-
-	            // Chainable
-	            return this;
-	        },
-
-	        /**
-	         * Removes insignificant bits.
-	         *
-	         * @example
-	         *
-	         *     wordArray.clamp();
-	         */
-	        clamp: function () {
-	            // Shortcuts
-	            var words = this.words;
-	            var sigBytes = this.sigBytes;
-
-	            // Clamp
-	            words[sigBytes >>> 2] &= 0xffffffff << (32 - (sigBytes % 4) * 8);
-	            words.length = Math.ceil(sigBytes / 4);
-	        },
-
-	        /**
-	         * Creates a copy of this word array.
-	         *
-	         * @return {WordArray} The clone.
-	         *
-	         * @example
-	         *
-	         *     var clone = wordArray.clone();
-	         */
-	        clone: function () {
-	            var clone = Base.clone.call(this);
-	            clone.words = this.words.slice(0);
-
-	            return clone;
-	        },
-
-	        /**
-	         * Creates a word array filled with random bytes.
-	         *
-	         * @param {number} nBytes The number of random bytes to generate.
-	         *
-	         * @return {WordArray} The random word array.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.lib.WordArray.random(16);
-	         */
-	        random: function (nBytes) {
-	            var words = [];
-
-	            var r = (function (m_w) {
-	                var m_w = m_w;
-	                var m_z = 0x3ade68b1;
-	                var mask = 0xffffffff;
-
-	                return function () {
-	                    m_z = (0x9069 * (m_z & 0xFFFF) + (m_z >> 0x10)) & mask;
-	                    m_w = (0x4650 * (m_w & 0xFFFF) + (m_w >> 0x10)) & mask;
-	                    var result = ((m_z << 0x10) + m_w) & mask;
-	                    result /= 0x100000000;
-	                    result += 0.5;
-	                    return result * (Math.random() > .5 ? 1 : -1);
-	                }
-	            });
-
-	            for (var i = 0, rcache; i < nBytes; i += 4) {
-	                var _r = r((rcache || Math.random()) * 0x100000000);
-
-	                rcache = _r() * 0x3ade67b7;
-	                words.push((_r() * 0x100000000) | 0);
-	            }
-
-	            return new WordArray.init(words, nBytes);
-	        }
-	    });
-
-	    /**
-	     * Encoder namespace.
-	     */
-	    var C_enc = C.enc = {};
-
-	    /**
-	     * Hex encoding strategy.
-	     */
-	    var Hex = C_enc.Hex = {
-	        /**
-	         * Converts a word array to a hex string.
-	         *
-	         * @param {WordArray} wordArray The word array.
-	         *
-	         * @return {string} The hex string.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var hexString = CryptoJS.enc.Hex.stringify(wordArray);
-	         */
-	        stringify: function (wordArray) {
-	            // Shortcuts
-	            var words = wordArray.words;
-	            var sigBytes = wordArray.sigBytes;
-
-	            // Convert
-	            var hexChars = [];
-	            for (var i = 0; i < sigBytes; i++) {
-	                var bite = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
-	                hexChars.push((bite >>> 4).toString(16));
-	                hexChars.push((bite & 0x0f).toString(16));
-	            }
-
-	            return hexChars.join('');
-	        },
-
-	        /**
-	         * Converts a hex string to a word array.
-	         *
-	         * @param {string} hexStr The hex string.
-	         *
-	         * @return {WordArray} The word array.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.enc.Hex.parse(hexString);
-	         */
-	        parse: function (hexStr) {
-	            // Shortcut
-	            var hexStrLength = hexStr.length;
-
-	            // Convert
-	            var words = [];
-	            for (var i = 0; i < hexStrLength; i += 2) {
-	                words[i >>> 3] |= parseInt(hexStr.substr(i, 2), 16) << (24 - (i % 8) * 4);
-	            }
-
-	            return new WordArray.init(words, hexStrLength / 2);
-	        }
-	    };
-
-	    /**
-	     * Latin1 encoding strategy.
-	     */
-	    var Latin1 = C_enc.Latin1 = {
-	        /**
-	         * Converts a word array to a Latin1 string.
-	         *
-	         * @param {WordArray} wordArray The word array.
-	         *
-	         * @return {string} The Latin1 string.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var latin1String = CryptoJS.enc.Latin1.stringify(wordArray);
-	         */
-	        stringify: function (wordArray) {
-	            // Shortcuts
-	            var words = wordArray.words;
-	            var sigBytes = wordArray.sigBytes;
-
-	            // Convert
-	            var latin1Chars = [];
-	            for (var i = 0; i < sigBytes; i++) {
-	                var bite = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
-	                latin1Chars.push(String.fromCharCode(bite));
-	            }
-
-	            return latin1Chars.join('');
-	        },
-
-	        /**
-	         * Converts a Latin1 string to a word array.
-	         *
-	         * @param {string} latin1Str The Latin1 string.
-	         *
-	         * @return {WordArray} The word array.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.enc.Latin1.parse(latin1String);
-	         */
-	        parse: function (latin1Str) {
-	            // Shortcut
-	            var latin1StrLength = latin1Str.length;
-
-	            // Convert
-	            var words = [];
-	            for (var i = 0; i < latin1StrLength; i++) {
-	                words[i >>> 2] |= (latin1Str.charCodeAt(i) & 0xff) << (24 - (i % 4) * 8);
-	            }
-
-	            return new WordArray.init(words, latin1StrLength);
-	        }
-	    };
-
-	    /**
-	     * UTF-8 encoding strategy.
-	     */
-	    var Utf8 = C_enc.Utf8 = {
-	        /**
-	         * Converts a word array to a UTF-8 string.
-	         *
-	         * @param {WordArray} wordArray The word array.
-	         *
-	         * @return {string} The UTF-8 string.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var utf8String = CryptoJS.enc.Utf8.stringify(wordArray);
-	         */
-	        stringify: function (wordArray) {
-	            try {
-	                return decodeURIComponent(escape(Latin1.stringify(wordArray)));
-	            } catch (e) {
-	                throw new Error('Malformed UTF-8 data');
-	            }
-	        },
-
-	        /**
-	         * Converts a UTF-8 string to a word array.
-	         *
-	         * @param {string} utf8Str The UTF-8 string.
-	         *
-	         * @return {WordArray} The word array.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.enc.Utf8.parse(utf8String);
-	         */
-	        parse: function (utf8Str) {
-	            return Latin1.parse(unescape(encodeURIComponent(utf8Str)));
-	        }
-	    };
-
-	    /**
-	     * Abstract buffered block algorithm template.
-	     *
-	     * The property blockSize must be implemented in a concrete subtype.
-	     *
-	     * @property {number} _minBufferSize The number of blocks that should be kept unprocessed in the buffer. Default: 0
-	     */
-	    var BufferedBlockAlgorithm = C_lib.BufferedBlockAlgorithm = Base.extend({
-	        /**
-	         * Resets this block algorithm's data buffer to its initial state.
-	         *
-	         * @example
-	         *
-	         *     bufferedBlockAlgorithm.reset();
-	         */
-	        reset: function () {
-	            // Initial values
-	            this._data = new WordArray.init();
-	            this._nDataBytes = 0;
-	        },
-
-	        /**
-	         * Adds new data to this block algorithm's buffer.
-	         *
-	         * @param {WordArray|string} data The data to append. Strings are converted to a WordArray using UTF-8.
-	         *
-	         * @example
-	         *
-	         *     bufferedBlockAlgorithm._append('data');
-	         *     bufferedBlockAlgorithm._append(wordArray);
-	         */
-	        _append: function (data) {
-	            // Convert string to WordArray, else assume WordArray already
-	            if (typeof data == 'string') {
-	                data = Utf8.parse(data);
-	            }
-
-	            // Append
-	            this._data.concat(data);
-	            this._nDataBytes += data.sigBytes;
-	        },
-
-	        /**
-	         * Processes available data blocks.
-	         *
-	         * This method invokes _doProcessBlock(offset), which must be implemented by a concrete subtype.
-	         *
-	         * @param {boolean} doFlush Whether all blocks and partial blocks should be processed.
-	         *
-	         * @return {WordArray} The processed data.
-	         *
-	         * @example
-	         *
-	         *     var processedData = bufferedBlockAlgorithm._process();
-	         *     var processedData = bufferedBlockAlgorithm._process(!!'flush');
-	         */
-	        _process: function (doFlush) {
-	            // Shortcuts
-	            var data = this._data;
-	            var dataWords = data.words;
-	            var dataSigBytes = data.sigBytes;
-	            var blockSize = this.blockSize;
-	            var blockSizeBytes = blockSize * 4;
-
-	            // Count blocks ready
-	            var nBlocksReady = dataSigBytes / blockSizeBytes;
-	            if (doFlush) {
-	                // Round up to include partial blocks
-	                nBlocksReady = Math.ceil(nBlocksReady);
-	            } else {
-	                // Round down to include only full blocks,
-	                // less the number of blocks that must remain in the buffer
-	                nBlocksReady = Math.max((nBlocksReady | 0) - this._minBufferSize, 0);
-	            }
-
-	            // Count words ready
-	            var nWordsReady = nBlocksReady * blockSize;
-
-	            // Count bytes ready
-	            var nBytesReady = Math.min(nWordsReady * 4, dataSigBytes);
-
-	            // Process blocks
-	            if (nWordsReady) {
-	                for (var offset = 0; offset < nWordsReady; offset += blockSize) {
-	                    // Perform concrete-algorithm logic
-	                    this._doProcessBlock(dataWords, offset);
-	                }
-
-	                // Remove processed words
-	                var processedWords = dataWords.splice(0, nWordsReady);
-	                data.sigBytes -= nBytesReady;
-	            }
-
-	            // Return processed words
-	            return new WordArray.init(processedWords, nBytesReady);
-	        },
-
-	        /**
-	         * Creates a copy of this object.
-	         *
-	         * @return {Object} The clone.
-	         *
-	         * @example
-	         *
-	         *     var clone = bufferedBlockAlgorithm.clone();
-	         */
-	        clone: function () {
-	            var clone = Base.clone.call(this);
-	            clone._data = this._data.clone();
-
-	            return clone;
-	        },
-
-	        _minBufferSize: 0
-	    });
-
-	    /**
-	     * Abstract hasher template.
-	     *
-	     * @property {number} blockSize The number of 32-bit words this hasher operates on. Default: 16 (512 bits)
-	     */
-	    var Hasher = C_lib.Hasher = BufferedBlockAlgorithm.extend({
-	        /**
-	         * Configuration options.
-	         */
-	        cfg: Base.extend(),
-
-	        /**
-	         * Initializes a newly created hasher.
-	         *
-	         * @param {Object} cfg (Optional) The configuration options to use for this hash computation.
-	         *
-	         * @example
-	         *
-	         *     var hasher = CryptoJS.algo.SHA256.create();
-	         */
-	        init: function (cfg) {
-	            // Apply config defaults
-	            this.cfg = this.cfg.extend(cfg);
-
-	            // Set initial values
-	            this.reset();
-	        },
-
-	        /**
-	         * Resets this hasher to its initial state.
-	         *
-	         * @example
-	         *
-	         *     hasher.reset();
-	         */
-	        reset: function () {
-	            // Reset data buffer
-	            BufferedBlockAlgorithm.reset.call(this);
-
-	            // Perform concrete-hasher logic
-	            this._doReset();
-	        },
-
-	        /**
-	         * Updates this hasher with a message.
-	         *
-	         * @param {WordArray|string} messageUpdate The message to append.
-	         *
-	         * @return {Hasher} This hasher.
-	         *
-	         * @example
-	         *
-	         *     hasher.update('message');
-	         *     hasher.update(wordArray);
-	         */
-	        update: function (messageUpdate) {
-	            // Append
-	            this._append(messageUpdate);
-
-	            // Update the hash
-	            this._process();
-
-	            // Chainable
-	            return this;
-	        },
-
-	        /**
-	         * Finalizes the hash computation.
-	         * Note that the finalize operation is effectively a destructive, read-once operation.
-	         *
-	         * @param {WordArray|string} messageUpdate (Optional) A final message update.
-	         *
-	         * @return {WordArray} The hash.
-	         *
-	         * @example
-	         *
-	         *     var hash = hasher.finalize();
-	         *     var hash = hasher.finalize('message');
-	         *     var hash = hasher.finalize(wordArray);
-	         */
-	        finalize: function (messageUpdate) {
-	            // Final message update
-	            if (messageUpdate) {
-	                this._append(messageUpdate);
-	            }
-
-	            // Perform concrete-hasher logic
-	            var hash = this._doFinalize();
-
-	            return hash;
-	        },
-
-	        blockSize: 512/32,
-
-	        /**
-	         * Creates a shortcut function to a hasher's object interface.
-	         *
-	         * @param {Hasher} hasher The hasher to create a helper for.
-	         *
-	         * @return {Function} The shortcut function.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var SHA256 = CryptoJS.lib.Hasher._createHelper(CryptoJS.algo.SHA256);
-	         */
-	        _createHelper: function (hasher) {
-	            return function (message, cfg) {
-	                return new hasher.init(cfg).finalize(message);
-	            };
-	        },
-
-	        /**
-	         * Creates a shortcut function to the HMAC's object interface.
-	         *
-	         * @param {Hasher} hasher The hasher to use in this HMAC helper.
-	         *
-	         * @return {Function} The shortcut function.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var HmacSHA256 = CryptoJS.lib.Hasher._createHmacHelper(CryptoJS.algo.SHA256);
-	         */
-	        _createHmacHelper: function (hasher) {
-	            return function (message, key) {
-	                return new C_algo.HMAC.init(hasher, key).finalize(message);
-	            };
-	        }
-	    });
-
-	    /**
-	     * Algorithm namespace.
-	     */
-	    var C_algo = C.algo = {};
-
-	    return C;
-	}(Math));
-
-
-	return CryptoJS;
-
-}));
-},{}],71:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function () {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var WordArray = C_lib.WordArray;
-	    var C_enc = C.enc;
-
-	    /**
-	     * Base64 encoding strategy.
-	     */
-	    var Base64 = C_enc.Base64 = {
-	        /**
-	         * Converts a word array to a Base64 string.
-	         *
-	         * @param {WordArray} wordArray The word array.
-	         *
-	         * @return {string} The Base64 string.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var base64String = CryptoJS.enc.Base64.stringify(wordArray);
-	         */
-	        stringify: function (wordArray) {
-	            // Shortcuts
-	            var words = wordArray.words;
-	            var sigBytes = wordArray.sigBytes;
-	            var map = this._map;
-
-	            // Clamp excess bits
-	            wordArray.clamp();
-
-	            // Convert
-	            var base64Chars = [];
-	            for (var i = 0; i < sigBytes; i += 3) {
-	                var byte1 = (words[i >>> 2]       >>> (24 - (i % 4) * 8))       & 0xff;
-	                var byte2 = (words[(i + 1) >>> 2] >>> (24 - ((i + 1) % 4) * 8)) & 0xff;
-	                var byte3 = (words[(i + 2) >>> 2] >>> (24 - ((i + 2) % 4) * 8)) & 0xff;
-
-	                var triplet = (byte1 << 16) | (byte2 << 8) | byte3;
-
-	                for (var j = 0; (j < 4) && (i + j * 0.75 < sigBytes); j++) {
-	                    base64Chars.push(map.charAt((triplet >>> (6 * (3 - j))) & 0x3f));
-	                }
-	            }
-
-	            // Add padding
-	            var paddingChar = map.charAt(64);
-	            if (paddingChar) {
-	                while (base64Chars.length % 4) {
-	                    base64Chars.push(paddingChar);
-	                }
-	            }
-
-	            return base64Chars.join('');
-	        },
-
-	        /**
-	         * Converts a Base64 string to a word array.
-	         *
-	         * @param {string} base64Str The Base64 string.
-	         *
-	         * @return {WordArray} The word array.
-	         *
-	         * @static
-	         *
-	         * @example
-	         *
-	         *     var wordArray = CryptoJS.enc.Base64.parse(base64String);
-	         */
-	        parse: function (base64Str) {
-	            // Shortcuts
-	            var base64StrLength = base64Str.length;
-	            var map = this._map;
-
-	            // Ignore padding
-	            var paddingChar = map.charAt(64);
-	            if (paddingChar) {
-	                var paddingIndex = base64Str.indexOf(paddingChar);
-	                if (paddingIndex != -1) {
-	                    base64StrLength = paddingIndex;
-	                }
-	            }
-
-	            // Convert
-	            var words = [];
-	            var nBytes = 0;
-	            for (var i = 0; i < base64StrLength; i++) {
-	                if (i % 4) {
-	                    var bits1 = map.indexOf(base64Str.charAt(i - 1)) << ((i % 4) * 2);
-	                    var bits2 = map.indexOf(base64Str.charAt(i)) >>> (6 - (i % 4) * 2);
-	                    words[nBytes >>> 2] |= (bits1 | bits2) << (24 - (nBytes % 4) * 8);
-	                    nBytes++;
-	                }
-	            }
-
-	            return WordArray.create(words, nBytes);
-	        },
-
-	        _map: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-	    };
-	}());
-
-
-	return CryptoJS.enc.Base64;
-
-}));
-},{"./core":70}],72:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	return CryptoJS.enc.Utf8;
-
-}));
-},{"./core":70}],73:[function(require,module,exports){
-;(function (root, factory, undef) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"), require("./sha1"), require("./hmac"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core", "./sha1", "./hmac"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function () {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var Base = C_lib.Base;
-	    var WordArray = C_lib.WordArray;
-	    var C_algo = C.algo;
-	    var MD5 = C_algo.MD5;
-
-	    /**
-	     * This key derivation function is meant to conform with EVP_BytesToKey.
-	     * www.openssl.org/docs/crypto/EVP_BytesToKey.html
-	     */
-	    var EvpKDF = C_algo.EvpKDF = Base.extend({
-	        /**
-	         * Configuration options.
-	         *
-	         * @property {number} keySize The key size in words to generate. Default: 4 (128 bits)
-	         * @property {Hasher} hasher The hash algorithm to use. Default: MD5
-	         * @property {number} iterations The number of iterations to perform. Default: 1
-	         */
-	        cfg: Base.extend({
-	            keySize: 128/32,
-	            hasher: MD5,
-	            iterations: 1
-	        }),
-
-	        /**
-	         * Initializes a newly created key derivation function.
-	         *
-	         * @param {Object} cfg (Optional) The configuration options to use for the derivation.
-	         *
-	         * @example
-	         *
-	         *     var kdf = CryptoJS.algo.EvpKDF.create();
-	         *     var kdf = CryptoJS.algo.EvpKDF.create({ keySize: 8 });
-	         *     var kdf = CryptoJS.algo.EvpKDF.create({ keySize: 8, iterations: 1000 });
-	         */
-	        init: function (cfg) {
-	            this.cfg = this.cfg.extend(cfg);
-	        },
-
-	        /**
-	         * Derives a key from a password.
-	         *
-	         * @param {WordArray|string} password The password.
-	         * @param {WordArray|string} salt A salt.
-	         *
-	         * @return {WordArray} The derived key.
-	         *
-	         * @example
-	         *
-	         *     var key = kdf.compute(password, salt);
-	         */
-	        compute: function (password, salt) {
-	            // Shortcut
-	            var cfg = this.cfg;
-
-	            // Init hasher
-	            var hasher = cfg.hasher.create();
-
-	            // Initial values
-	            var derivedKey = WordArray.create();
-
-	            // Shortcuts
-	            var derivedKeyWords = derivedKey.words;
-	            var keySize = cfg.keySize;
-	            var iterations = cfg.iterations;
-
-	            // Generate key
-	            while (derivedKeyWords.length < keySize) {
-	                if (block) {
-	                    hasher.update(block);
-	                }
-	                var block = hasher.update(password).finalize(salt);
-	                hasher.reset();
-
-	                // Iterations
-	                for (var i = 1; i < iterations; i++) {
-	                    block = hasher.finalize(block);
-	                    hasher.reset();
-	                }
-
-	                derivedKey.concat(block);
-	            }
-	            derivedKey.sigBytes = keySize * 4;
-
-	            return derivedKey;
-	        }
-	    });
-
-	    /**
-	     * Derives a key from a password.
-	     *
-	     * @param {WordArray|string} password The password.
-	     * @param {WordArray|string} salt A salt.
-	     * @param {Object} cfg (Optional) The configuration options to use for this computation.
-	     *
-	     * @return {WordArray} The derived key.
-	     *
-	     * @static
-	     *
-	     * @example
-	     *
-	     *     var key = CryptoJS.EvpKDF(password, salt);
-	     *     var key = CryptoJS.EvpKDF(password, salt, { keySize: 8 });
-	     *     var key = CryptoJS.EvpKDF(password, salt, { keySize: 8, iterations: 1000 });
-	     */
-	    C.EvpKDF = function (password, salt, cfg) {
-	        return EvpKDF.create(cfg).compute(password, salt);
-	    };
-	}());
-
-
-	return CryptoJS.EvpKDF;
-
-}));
-},{"./core":70,"./hmac":74,"./sha1":76}],74:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function () {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var Base = C_lib.Base;
-	    var C_enc = C.enc;
-	    var Utf8 = C_enc.Utf8;
-	    var C_algo = C.algo;
-
-	    /**
-	     * HMAC algorithm.
-	     */
-	    var HMAC = C_algo.HMAC = Base.extend({
-	        /**
-	         * Initializes a newly created HMAC.
-	         *
-	         * @param {Hasher} hasher The hash algorithm to use.
-	         * @param {WordArray|string} key The secret key.
-	         *
-	         * @example
-	         *
-	         *     var hmacHasher = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, key);
-	         */
-	        init: function (hasher, key) {
-	            // Init hasher
-	            hasher = this._hasher = new hasher.init();
-
-	            // Convert string to WordArray, else assume WordArray already
-	            if (typeof key == 'string') {
-	                key = Utf8.parse(key);
-	            }
-
-	            // Shortcuts
-	            var hasherBlockSize = hasher.blockSize;
-	            var hasherBlockSizeBytes = hasherBlockSize * 4;
-
-	            // Allow arbitrary length keys
-	            if (key.sigBytes > hasherBlockSizeBytes) {
-	                key = hasher.finalize(key);
-	            }
-
-	            // Clamp excess bits
-	            key.clamp();
-
-	            // Clone key for inner and outer pads
-	            var oKey = this._oKey = key.clone();
-	            var iKey = this._iKey = key.clone();
-
-	            // Shortcuts
-	            var oKeyWords = oKey.words;
-	            var iKeyWords = iKey.words;
-
-	            // XOR keys with pad constants
-	            for (var i = 0; i < hasherBlockSize; i++) {
-	                oKeyWords[i] ^= 0x5c5c5c5c;
-	                iKeyWords[i] ^= 0x36363636;
-	            }
-	            oKey.sigBytes = iKey.sigBytes = hasherBlockSizeBytes;
-
-	            // Set initial values
-	            this.reset();
-	        },
-
-	        /**
-	         * Resets this HMAC to its initial state.
-	         *
-	         * @example
-	         *
-	         *     hmacHasher.reset();
-	         */
-	        reset: function () {
-	            // Shortcut
-	            var hasher = this._hasher;
-
-	            // Reset
-	            hasher.reset();
-	            hasher.update(this._iKey);
-	        },
-
-	        /**
-	         * Updates this HMAC with a message.
-	         *
-	         * @param {WordArray|string} messageUpdate The message to append.
-	         *
-	         * @return {HMAC} This HMAC instance.
-	         *
-	         * @example
-	         *
-	         *     hmacHasher.update('message');
-	         *     hmacHasher.update(wordArray);
-	         */
-	        update: function (messageUpdate) {
-	            this._hasher.update(messageUpdate);
-
-	            // Chainable
-	            return this;
-	        },
-
-	        /**
-	         * Finalizes the HMAC computation.
-	         * Note that the finalize operation is effectively a destructive, read-once operation.
-	         *
-	         * @param {WordArray|string} messageUpdate (Optional) A final message update.
-	         *
-	         * @return {WordArray} The HMAC.
-	         *
-	         * @example
-	         *
-	         *     var hmac = hmacHasher.finalize();
-	         *     var hmac = hmacHasher.finalize('message');
-	         *     var hmac = hmacHasher.finalize(wordArray);
-	         */
-	        finalize: function (messageUpdate) {
-	            // Shortcut
-	            var hasher = this._hasher;
-
-	            // Compute HMAC
-	            var innerHash = hasher.finalize(messageUpdate);
-	            hasher.reset();
-	            var hmac = hasher.finalize(this._oKey.clone().concat(innerHash));
-
-	            return hmac;
-	        }
-	    });
-	}());
-
-
-}));
-},{"./core":70}],75:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function (Math) {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var WordArray = C_lib.WordArray;
-	    var Hasher = C_lib.Hasher;
-	    var C_algo = C.algo;
-
-	    // Constants table
-	    var T = [];
-
-	    // Compute constants
-	    (function () {
-	        for (var i = 0; i < 64; i++) {
-	            T[i] = (Math.abs(Math.sin(i + 1)) * 0x100000000) | 0;
-	        }
-	    }());
-
-	    /**
-	     * MD5 hash algorithm.
-	     */
-	    var MD5 = C_algo.MD5 = Hasher.extend({
-	        _doReset: function () {
-	            this._hash = new WordArray.init([
-	                0x67452301, 0xefcdab89,
-	                0x98badcfe, 0x10325476
-	            ]);
-	        },
-
-	        _doProcessBlock: function (M, offset) {
-	            // Swap endian
-	            for (var i = 0; i < 16; i++) {
-	                // Shortcuts
-	                var offset_i = offset + i;
-	                var M_offset_i = M[offset_i];
-
-	                M[offset_i] = (
-	                    (((M_offset_i << 8)  | (M_offset_i >>> 24)) & 0x00ff00ff) |
-	                    (((M_offset_i << 24) | (M_offset_i >>> 8))  & 0xff00ff00)
-	                );
-	            }
-
-	            // Shortcuts
-	            var H = this._hash.words;
-
-	            var M_offset_0  = M[offset + 0];
-	            var M_offset_1  = M[offset + 1];
-	            var M_offset_2  = M[offset + 2];
-	            var M_offset_3  = M[offset + 3];
-	            var M_offset_4  = M[offset + 4];
-	            var M_offset_5  = M[offset + 5];
-	            var M_offset_6  = M[offset + 6];
-	            var M_offset_7  = M[offset + 7];
-	            var M_offset_8  = M[offset + 8];
-	            var M_offset_9  = M[offset + 9];
-	            var M_offset_10 = M[offset + 10];
-	            var M_offset_11 = M[offset + 11];
-	            var M_offset_12 = M[offset + 12];
-	            var M_offset_13 = M[offset + 13];
-	            var M_offset_14 = M[offset + 14];
-	            var M_offset_15 = M[offset + 15];
-
-	            // Working varialbes
-	            var a = H[0];
-	            var b = H[1];
-	            var c = H[2];
-	            var d = H[3];
-
-	            // Computation
-	            a = FF(a, b, c, d, M_offset_0,  7,  T[0]);
-	            d = FF(d, a, b, c, M_offset_1,  12, T[1]);
-	            c = FF(c, d, a, b, M_offset_2,  17, T[2]);
-	            b = FF(b, c, d, a, M_offset_3,  22, T[3]);
-	            a = FF(a, b, c, d, M_offset_4,  7,  T[4]);
-	            d = FF(d, a, b, c, M_offset_5,  12, T[5]);
-	            c = FF(c, d, a, b, M_offset_6,  17, T[6]);
-	            b = FF(b, c, d, a, M_offset_7,  22, T[7]);
-	            a = FF(a, b, c, d, M_offset_8,  7,  T[8]);
-	            d = FF(d, a, b, c, M_offset_9,  12, T[9]);
-	            c = FF(c, d, a, b, M_offset_10, 17, T[10]);
-	            b = FF(b, c, d, a, M_offset_11, 22, T[11]);
-	            a = FF(a, b, c, d, M_offset_12, 7,  T[12]);
-	            d = FF(d, a, b, c, M_offset_13, 12, T[13]);
-	            c = FF(c, d, a, b, M_offset_14, 17, T[14]);
-	            b = FF(b, c, d, a, M_offset_15, 22, T[15]);
-
-	            a = GG(a, b, c, d, M_offset_1,  5,  T[16]);
-	            d = GG(d, a, b, c, M_offset_6,  9,  T[17]);
-	            c = GG(c, d, a, b, M_offset_11, 14, T[18]);
-	            b = GG(b, c, d, a, M_offset_0,  20, T[19]);
-	            a = GG(a, b, c, d, M_offset_5,  5,  T[20]);
-	            d = GG(d, a, b, c, M_offset_10, 9,  T[21]);
-	            c = GG(c, d, a, b, M_offset_15, 14, T[22]);
-	            b = GG(b, c, d, a, M_offset_4,  20, T[23]);
-	            a = GG(a, b, c, d, M_offset_9,  5,  T[24]);
-	            d = GG(d, a, b, c, M_offset_14, 9,  T[25]);
-	            c = GG(c, d, a, b, M_offset_3,  14, T[26]);
-	            b = GG(b, c, d, a, M_offset_8,  20, T[27]);
-	            a = GG(a, b, c, d, M_offset_13, 5,  T[28]);
-	            d = GG(d, a, b, c, M_offset_2,  9,  T[29]);
-	            c = GG(c, d, a, b, M_offset_7,  14, T[30]);
-	            b = GG(b, c, d, a, M_offset_12, 20, T[31]);
-
-	            a = HH(a, b, c, d, M_offset_5,  4,  T[32]);
-	            d = HH(d, a, b, c, M_offset_8,  11, T[33]);
-	            c = HH(c, d, a, b, M_offset_11, 16, T[34]);
-	            b = HH(b, c, d, a, M_offset_14, 23, T[35]);
-	            a = HH(a, b, c, d, M_offset_1,  4,  T[36]);
-	            d = HH(d, a, b, c, M_offset_4,  11, T[37]);
-	            c = HH(c, d, a, b, M_offset_7,  16, T[38]);
-	            b = HH(b, c, d, a, M_offset_10, 23, T[39]);
-	            a = HH(a, b, c, d, M_offset_13, 4,  T[40]);
-	            d = HH(d, a, b, c, M_offset_0,  11, T[41]);
-	            c = HH(c, d, a, b, M_offset_3,  16, T[42]);
-	            b = HH(b, c, d, a, M_offset_6,  23, T[43]);
-	            a = HH(a, b, c, d, M_offset_9,  4,  T[44]);
-	            d = HH(d, a, b, c, M_offset_12, 11, T[45]);
-	            c = HH(c, d, a, b, M_offset_15, 16, T[46]);
-	            b = HH(b, c, d, a, M_offset_2,  23, T[47]);
-
-	            a = II(a, b, c, d, M_offset_0,  6,  T[48]);
-	            d = II(d, a, b, c, M_offset_7,  10, T[49]);
-	            c = II(c, d, a, b, M_offset_14, 15, T[50]);
-	            b = II(b, c, d, a, M_offset_5,  21, T[51]);
-	            a = II(a, b, c, d, M_offset_12, 6,  T[52]);
-	            d = II(d, a, b, c, M_offset_3,  10, T[53]);
-	            c = II(c, d, a, b, M_offset_10, 15, T[54]);
-	            b = II(b, c, d, a, M_offset_1,  21, T[55]);
-	            a = II(a, b, c, d, M_offset_8,  6,  T[56]);
-	            d = II(d, a, b, c, M_offset_15, 10, T[57]);
-	            c = II(c, d, a, b, M_offset_6,  15, T[58]);
-	            b = II(b, c, d, a, M_offset_13, 21, T[59]);
-	            a = II(a, b, c, d, M_offset_4,  6,  T[60]);
-	            d = II(d, a, b, c, M_offset_11, 10, T[61]);
-	            c = II(c, d, a, b, M_offset_2,  15, T[62]);
-	            b = II(b, c, d, a, M_offset_9,  21, T[63]);
-
-	            // Intermediate hash value
-	            H[0] = (H[0] + a) | 0;
-	            H[1] = (H[1] + b) | 0;
-	            H[2] = (H[2] + c) | 0;
-	            H[3] = (H[3] + d) | 0;
-	        },
-
-	        _doFinalize: function () {
-	            // Shortcuts
-	            var data = this._data;
-	            var dataWords = data.words;
-
-	            var nBitsTotal = this._nDataBytes * 8;
-	            var nBitsLeft = data.sigBytes * 8;
-
-	            // Add padding
-	            dataWords[nBitsLeft >>> 5] |= 0x80 << (24 - nBitsLeft % 32);
-
-	            var nBitsTotalH = Math.floor(nBitsTotal / 0x100000000);
-	            var nBitsTotalL = nBitsTotal;
-	            dataWords[(((nBitsLeft + 64) >>> 9) << 4) + 15] = (
-	                (((nBitsTotalH << 8)  | (nBitsTotalH >>> 24)) & 0x00ff00ff) |
-	                (((nBitsTotalH << 24) | (nBitsTotalH >>> 8))  & 0xff00ff00)
-	            );
-	            dataWords[(((nBitsLeft + 64) >>> 9) << 4) + 14] = (
-	                (((nBitsTotalL << 8)  | (nBitsTotalL >>> 24)) & 0x00ff00ff) |
-	                (((nBitsTotalL << 24) | (nBitsTotalL >>> 8))  & 0xff00ff00)
-	            );
-
-	            data.sigBytes = (dataWords.length + 1) * 4;
-
-	            // Hash final blocks
-	            this._process();
-
-	            // Shortcuts
-	            var hash = this._hash;
-	            var H = hash.words;
-
-	            // Swap endian
-	            for (var i = 0; i < 4; i++) {
-	                // Shortcut
-	                var H_i = H[i];
-
-	                H[i] = (((H_i << 8)  | (H_i >>> 24)) & 0x00ff00ff) |
-	                       (((H_i << 24) | (H_i >>> 8))  & 0xff00ff00);
-	            }
-
-	            // Return final computed hash
-	            return hash;
-	        },
-
-	        clone: function () {
-	            var clone = Hasher.clone.call(this);
-	            clone._hash = this._hash.clone();
-
-	            return clone;
-	        }
-	    });
-
-	    function FF(a, b, c, d, x, s, t) {
-	        var n = a + ((b & c) | (~b & d)) + x + t;
-	        return ((n << s) | (n >>> (32 - s))) + b;
-	    }
-
-	    function GG(a, b, c, d, x, s, t) {
-	        var n = a + ((b & d) | (c & ~d)) + x + t;
-	        return ((n << s) | (n >>> (32 - s))) + b;
-	    }
-
-	    function HH(a, b, c, d, x, s, t) {
-	        var n = a + (b ^ c ^ d) + x + t;
-	        return ((n << s) | (n >>> (32 - s))) + b;
-	    }
-
-	    function II(a, b, c, d, x, s, t) {
-	        var n = a + (c ^ (b | ~d)) + x + t;
-	        return ((n << s) | (n >>> (32 - s))) + b;
-	    }
-
-	    /**
-	     * Shortcut function to the hasher's object interface.
-	     *
-	     * @param {WordArray|string} message The message to hash.
-	     *
-	     * @return {WordArray} The hash.
-	     *
-	     * @static
-	     *
-	     * @example
-	     *
-	     *     var hash = CryptoJS.MD5('message');
-	     *     var hash = CryptoJS.MD5(wordArray);
-	     */
-	    C.MD5 = Hasher._createHelper(MD5);
-
-	    /**
-	     * Shortcut function to the HMAC's object interface.
-	     *
-	     * @param {WordArray|string} message The message to hash.
-	     * @param {WordArray|string} key The secret key.
-	     *
-	     * @return {WordArray} The HMAC.
-	     *
-	     * @static
-	     *
-	     * @example
-	     *
-	     *     var hmac = CryptoJS.HmacMD5(message, key);
-	     */
-	    C.HmacMD5 = Hasher._createHmacHelper(MD5);
-	}(Math));
-
-
-	return CryptoJS.MD5;
-
-}));
-},{"./core":70}],76:[function(require,module,exports){
-;(function (root, factory) {
-	if (typeof exports === "object") {
-		// CommonJS
-		module.exports = exports = factory(require("./core"));
-	}
-	else if (typeof define === "function" && define.amd) {
-		// AMD
-		define(["./core"], factory);
-	}
-	else {
-		// Global (browser)
-		factory(root.CryptoJS);
-	}
-}(this, function (CryptoJS) {
-
-	(function () {
-	    // Shortcuts
-	    var C = CryptoJS;
-	    var C_lib = C.lib;
-	    var WordArray = C_lib.WordArray;
-	    var Hasher = C_lib.Hasher;
-	    var C_algo = C.algo;
-
-	    // Reusable object
-	    var W = [];
-
-	    /**
-	     * SHA-1 hash algorithm.
-	     */
-	    var SHA1 = C_algo.SHA1 = Hasher.extend({
-	        _doReset: function () {
-	            this._hash = new WordArray.init([
-	                0x67452301, 0xefcdab89,
-	                0x98badcfe, 0x10325476,
-	                0xc3d2e1f0
-	            ]);
-	        },
-
-	        _doProcessBlock: function (M, offset) {
-	            // Shortcut
-	            var H = this._hash.words;
-
-	            // Working variables
-	            var a = H[0];
-	            var b = H[1];
-	            var c = H[2];
-	            var d = H[3];
-	            var e = H[4];
-
-	            // Computation
-	            for (var i = 0; i < 80; i++) {
-	                if (i < 16) {
-	                    W[i] = M[offset + i] | 0;
-	                } else {
-	                    var n = W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16];
-	                    W[i] = (n << 1) | (n >>> 31);
-	                }
-
-	                var t = ((a << 5) | (a >>> 27)) + e + W[i];
-	                if (i < 20) {
-	                    t += ((b & c) | (~b & d)) + 0x5a827999;
-	                } else if (i < 40) {
-	                    t += (b ^ c ^ d) + 0x6ed9eba1;
-	                } else if (i < 60) {
-	                    t += ((b & c) | (b & d) | (c & d)) - 0x70e44324;
-	                } else /* if (i < 80) */ {
-	                    t += (b ^ c ^ d) - 0x359d3e2a;
-	                }
-
-	                e = d;
-	                d = c;
-	                c = (b << 30) | (b >>> 2);
-	                b = a;
-	                a = t;
-	            }
-
-	            // Intermediate hash value
-	            H[0] = (H[0] + a) | 0;
-	            H[1] = (H[1] + b) | 0;
-	            H[2] = (H[2] + c) | 0;
-	            H[3] = (H[3] + d) | 0;
-	            H[4] = (H[4] + e) | 0;
-	        },
-
-	        _doFinalize: function () {
-	            // Shortcuts
-	            var data = this._data;
-	            var dataWords = data.words;
-
-	            var nBitsTotal = this._nDataBytes * 8;
-	            var nBitsLeft = data.sigBytes * 8;
-
-	            // Add padding
-	            dataWords[nBitsLeft >>> 5] |= 0x80 << (24 - nBitsLeft % 32);
-	            dataWords[(((nBitsLeft + 64) >>> 9) << 4) + 14] = Math.floor(nBitsTotal / 0x100000000);
-	            dataWords[(((nBitsLeft + 64) >>> 9) << 4) + 15] = nBitsTotal;
-	            data.sigBytes = dataWords.length * 4;
-
-	            // Hash final blocks
-	            this._process();
-
-	            // Return final computed hash
-	            return this._hash;
-	        },
-
-	        clone: function () {
-	            var clone = Hasher.clone.call(this);
-	            clone._hash = this._hash.clone();
-
-	            return clone;
-	        }
-	    });
-
-	    /**
-	     * Shortcut function to the hasher's object interface.
-	     *
-	     * @param {WordArray|string} message The message to hash.
-	     *
-	     * @return {WordArray} The hash.
-	     *
-	     * @static
-	     *
-	     * @example
-	     *
-	     *     var hash = CryptoJS.SHA1('message');
-	     *     var hash = CryptoJS.SHA1(wordArray);
-	     */
-	    C.SHA1 = Hasher._createHelper(SHA1);
-
-	    /**
-	     * Shortcut function to the HMAC's object interface.
-	     *
-	     * @param {WordArray|string} message The message to hash.
-	     * @param {WordArray|string} key The secret key.
-	     *
-	     * @return {WordArray} The HMAC.
-	     *
-	     * @static
-	     *
-	     * @example
-	     *
-	     *     var hmac = CryptoJS.HmacSHA1(message, key);
-	     */
-	    C.HmacSHA1 = Hasher._createHmacHelper(SHA1);
-	}());
-
-
-	return CryptoJS.SHA1;
-
-}));
-},{"./core":70}],77:[function(require,module,exports){
+},{"__browserify_Buffer":67}],70:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core"),require("./enc-base64"),require("./md5"),require("./evpkdf"),require("./cipher-core")):"function"==typeof define&&define.amd?define(["./core","./enc-base64","./md5","./evpkdf","./cipher-core"],r):r(e.CryptoJS)})(this,function(e){return function(){var r=e,t=r.lib,i=t.BlockCipher,o=r.algo,n=[],c=[],s=[],a=[],f=[],u=[],h=[],p=[],d=[],l=[];(function(){for(var e=[],r=0;256>r;r++)e[r]=128>r?r<<1:283^r<<1;for(var t=0,i=0,r=0;256>r;r++){var o=i^i<<1^i<<2^i<<3^i<<4;o=99^(o>>>8^255&o),n[t]=o,c[o]=t;var y=e[t],v=e[y],m=e[v],x=257*e[o]^16843008*o;s[t]=x<<24|x>>>8,a[t]=x<<16|x>>>16,f[t]=x<<8|x>>>24,u[t]=x;var x=16843009*m^65537*v^257*y^16843008*t;h[o]=x<<24|x>>>8,p[o]=x<<16|x>>>16,d[o]=x<<8|x>>>24,l[o]=x,t?(t=y^e[e[e[m^y]]],i^=e[e[i]]):t=i=1}})();var y=[0,1,2,4,8,16,32,64,128,27,54],v=o.AES=i.extend({_doReset:function(){for(var e=this._key,r=e.words,t=e.sigBytes/4,i=this._nRounds=t+6,o=4*(i+1),c=this._keySchedule=[],s=0;o>s;s++)if(t>s)c[s]=r[s];else{var a=c[s-1];s%t?t>6&&4==s%t&&(a=n[a>>>24]<<24|n[255&a>>>16]<<16|n[255&a>>>8]<<8|n[255&a]):(a=a<<8|a>>>24,a=n[a>>>24]<<24|n[255&a>>>16]<<16|n[255&a>>>8]<<8|n[255&a],a^=y[0|s/t]<<24),c[s]=c[s-t]^a}for(var f=this._invKeySchedule=[],u=0;o>u;u++){var s=o-u;if(u%4)var a=c[s];else var a=c[s-4];f[u]=4>u||4>=s?a:h[n[a>>>24]]^p[n[255&a>>>16]]^d[n[255&a>>>8]]^l[n[255&a]]}},encryptBlock:function(e,r){this._doCryptBlock(e,r,this._keySchedule,s,a,f,u,n)},decryptBlock:function(e,r){var t=e[r+1];e[r+1]=e[r+3],e[r+3]=t,this._doCryptBlock(e,r,this._invKeySchedule,h,p,d,l,c);var t=e[r+1];e[r+1]=e[r+3],e[r+3]=t},_doCryptBlock:function(e,r,t,i,o,n,c,s){for(var a=this._nRounds,f=e[r]^t[0],u=e[r+1]^t[1],h=e[r+2]^t[2],p=e[r+3]^t[3],d=4,l=1;a>l;l++){var y=i[f>>>24]^o[255&u>>>16]^n[255&h>>>8]^c[255&p]^t[d++],v=i[u>>>24]^o[255&h>>>16]^n[255&p>>>8]^c[255&f]^t[d++],m=i[h>>>24]^o[255&p>>>16]^n[255&f>>>8]^c[255&u]^t[d++],x=i[p>>>24]^o[255&f>>>16]^n[255&u>>>8]^c[255&h]^t[d++];f=y,u=v,h=m,p=x}var y=(s[f>>>24]<<24|s[255&u>>>16]<<16|s[255&h>>>8]<<8|s[255&p])^t[d++],v=(s[u>>>24]<<24|s[255&h>>>16]<<16|s[255&p>>>8]<<8|s[255&f])^t[d++],m=(s[h>>>24]<<24|s[255&p>>>16]<<16|s[255&f>>>8]<<8|s[255&u])^t[d++],x=(s[p>>>24]<<24|s[255&f>>>16]<<16|s[255&u>>>8]<<8|s[255&h])^t[d++];e[r]=y,e[r+1]=v,e[r+2]=m,e[r+3]=x},keySize:8});r.AES=i._createHelper(v)}(),e.AES});
+},{"./cipher-core":71,"./core":72,"./enc-base64":73,"./evpkdf":75,"./md5":77}],71:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){e.lib.Cipher||function(r){var t=e,i=t.lib,n=i.Base,o=i.WordArray,c=i.BufferedBlockAlgorithm,s=t.enc;s.Utf8;var a=s.Base64,f=t.algo,u=f.EvpKDF,h=i.Cipher=c.extend({cfg:n.extend(),createEncryptor:function(e,r){return this.create(this._ENC_XFORM_MODE,e,r)},createDecryptor:function(e,r){return this.create(this._DEC_XFORM_MODE,e,r)},init:function(e,r,t){this.cfg=this.cfg.extend(t),this._xformMode=e,this._key=r,this.reset()},reset:function(){c.reset.call(this),this._doReset()},process:function(e){return this._append(e),this._process()},finalize:function(e){e&&this._append(e);var r=this._doFinalize();return r},keySize:4,ivSize:4,_ENC_XFORM_MODE:1,_DEC_XFORM_MODE:2,_createHelper:function(){function e(e){return"string"==typeof e?q:_}return function(r){return{encrypt:function(t,i,n){return e(i).encrypt(r,t,i,n)},decrypt:function(t,i,n){return e(i).decrypt(r,t,i,n)}}}}()});i.StreamCipher=h.extend({_doFinalize:function(){var e=this._process(true);return e},blockSize:1});var d=t.mode={},p=i.BlockCipherMode=n.extend({createEncryptor:function(e,r){return this.Encryptor.create(e,r)},createDecryptor:function(e,r){return this.Decryptor.create(e,r)},init:function(e,r){this._cipher=e,this._iv=r}}),l=d.CBC=function(){function e(e,t,i){var n=this._iv;if(n){var o=n;this._iv=r}else var o=this._prevBlock;for(var c=0;i>c;c++)e[t+c]^=o[c]}var t=p.extend();return t.Encryptor=t.extend({processBlock:function(r,t){var i=this._cipher,n=i.blockSize;e.call(this,r,t,n),i.encryptBlock(r,t),this._prevBlock=r.slice(t,t+n)}}),t.Decryptor=t.extend({processBlock:function(r,t){var i=this._cipher,n=i.blockSize,o=r.slice(t,t+n);i.decryptBlock(r,t),e.call(this,r,t,n),this._prevBlock=o}}),t}(),y=t.pad={},v=y.Pkcs7={pad:function(e,r){for(var t=4*r,i=t-e.sigBytes%t,n=i<<24|i<<16|i<<8|i,c=[],s=0;i>s;s+=4)c.push(n);var a=o.create(c,i);e.concat(a)},unpad:function(e){var r=255&e.words[e.sigBytes-1>>>2];e.sigBytes-=r}};i.BlockCipher=h.extend({cfg:h.cfg.extend({mode:l,padding:v}),reset:function(){h.reset.call(this);var e=this.cfg,r=e.iv,t=e.mode;if(this._xformMode==this._ENC_XFORM_MODE)var i=t.createEncryptor;else{var i=t.createDecryptor;this._minBufferSize=1}this._mode=i.call(t,this,r&&r.words)},_doProcessBlock:function(e,r){this._mode.processBlock(e,r)},_doFinalize:function(){var e=this.cfg.padding;if(this._xformMode==this._ENC_XFORM_MODE){e.pad(this._data,this.blockSize);var r=this._process(true)}else{var r=this._process(true);e.unpad(r)}return r},blockSize:4});var g=i.CipherParams=n.extend({init:function(e){this.mixIn(e)},toString:function(e){return(e||this.formatter).stringify(this)}}),m=t.format={},x=m.OpenSSL={stringify:function(e){var r=e.ciphertext,t=e.salt;if(t)var i=o.create([1398893684,1701076831]).concat(t).concat(r);else var i=r;return i.toString(a)},parse:function(e){var r=a.parse(e),t=r.words;if(1398893684==t[0]&&1701076831==t[1]){var i=o.create(t.slice(2,4));t.splice(0,4),r.sigBytes-=16}return g.create({ciphertext:r,salt:i})}},_=i.SerializableCipher=n.extend({cfg:n.extend({format:x}),encrypt:function(e,r,t,i){i=this.cfg.extend(i);var n=e.createEncryptor(t,i),o=n.finalize(r),c=n.cfg;return g.create({ciphertext:o,key:t,iv:c.iv,algorithm:e,mode:c.mode,padding:c.padding,blockSize:e.blockSize,formatter:i.format})},decrypt:function(e,r,t,i){i=this.cfg.extend(i),r=this._parse(r,i.format);var n=e.createDecryptor(t,i).finalize(r.ciphertext);return n},_parse:function(e,r){return"string"==typeof e?r.parse(e,this):e}}),w=t.kdf={},S=w.OpenSSL={execute:function(e,r,t,i){i||(i=o.random(8));var n=u.create({keySize:r+t}).compute(e,i),c=o.create(n.words.slice(r),4*t);return n.sigBytes=4*r,g.create({key:n,iv:c,salt:i})}},q=i.PasswordBasedCipher=_.extend({cfg:_.cfg.extend({kdf:S}),encrypt:function(e,r,t,i){i=this.cfg.extend(i);var n=i.kdf.execute(t,e.keySize,e.ivSize);i.iv=n.iv;var o=_.encrypt.call(this,e,r,n.key,i);return o.mixIn(n),o},decrypt:function(e,r,t,i){i=this.cfg.extend(i),r=this._parse(r,i.format);var n=i.kdf.execute(t,e.keySize,e.ivSize,r.salt);i.iv=n.iv;var o=_.decrypt.call(this,e,r,n.key,i);return o}})}()});
+},{"./core":72}],72:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r():"function"==typeof define&&define.amd?define([],r):e.CryptoJS=r()})(this,function(){var e=e||function(e,r){var t={},i=t.lib={},n=i.Base=function(){function e(){}return{extend:function(r){e.prototype=this;var t=new e;return r&&t.mixIn(r),t.hasOwnProperty("init")||(t.init=function(){t.$super.init.apply(this,arguments)}),t.init.prototype=t,t.$super=this,t},create:function(){var e=this.extend();return e.init.apply(e,arguments),e},init:function(){},mixIn:function(e){for(var r in e)e.hasOwnProperty(r)&&(this[r]=e[r]);e.hasOwnProperty("toString")&&(this.toString=e.toString)},clone:function(){return this.init.prototype.extend(this)}}}(),o=i.WordArray=n.extend({init:function(e,t){e=this.words=e||[],this.sigBytes=t!=r?t:4*e.length},toString:function(e){return(e||s).stringify(this)},concat:function(e){var r=this.words,t=e.words,i=this.sigBytes,n=e.sigBytes;if(this.clamp(),i%4)for(var o=0;n>o;o++){var c=255&t[o>>>2]>>>24-8*(o%4);r[i+o>>>2]|=c<<24-8*((i+o)%4)}else if(t.length>65535)for(var o=0;n>o;o+=4)r[i+o>>>2]=t[o>>>2];else r.push.apply(r,t);return this.sigBytes+=n,this},clamp:function(){var r=this.words,t=this.sigBytes;r[t>>>2]&=4294967295<<32-8*(t%4),r.length=e.ceil(t/4)},clone:function(){var e=n.clone.call(this);return e.words=this.words.slice(0),e},random:function(r){for(var t=[],i=0;r>i;i+=4)t.push(0|4294967296*e.random());return new o.init(t,r)}}),c=t.enc={},s=c.Hex={stringify:function(e){for(var r=e.words,t=e.sigBytes,i=[],n=0;t>n;n++){var o=255&r[n>>>2]>>>24-8*(n%4);i.push((o>>>4).toString(16)),i.push((15&o).toString(16))}return i.join("")},parse:function(e){for(var r=e.length,t=[],i=0;r>i;i+=2)t[i>>>3]|=parseInt(e.substr(i,2),16)<<24-4*(i%8);return new o.init(t,r/2)}},u=c.Latin1={stringify:function(e){for(var r=e.words,t=e.sigBytes,i=[],n=0;t>n;n++){var o=255&r[n>>>2]>>>24-8*(n%4);i.push(String.fromCharCode(o))}return i.join("")},parse:function(e){for(var r=e.length,t=[],i=0;r>i;i++)t[i>>>2]|=(255&e.charCodeAt(i))<<24-8*(i%4);return new o.init(t,r)}},f=c.Utf8={stringify:function(e){try{return decodeURIComponent(escape(u.stringify(e)))}catch(r){throw Error("Malformed UTF-8 data")}},parse:function(e){return u.parse(unescape(encodeURIComponent(e)))}},a=i.BufferedBlockAlgorithm=n.extend({reset:function(){this._data=new o.init,this._nDataBytes=0},_append:function(e){"string"==typeof e&&(e=f.parse(e)),this._data.concat(e),this._nDataBytes+=e.sigBytes},_process:function(r){var t=this._data,i=t.words,n=t.sigBytes,c=this.blockSize,s=4*c,u=n/s;u=r?e.ceil(u):e.max((0|u)-this._minBufferSize,0);var f=u*c,a=e.min(4*f,n);if(f){for(var p=0;f>p;p+=c)this._doProcessBlock(i,p);var d=i.splice(0,f);t.sigBytes-=a}return new o.init(d,a)},clone:function(){var e=n.clone.call(this);return e._data=this._data.clone(),e},_minBufferSize:0});i.Hasher=a.extend({cfg:n.extend(),init:function(e){this.cfg=this.cfg.extend(e),this.reset()},reset:function(){a.reset.call(this),this._doReset()},update:function(e){return this._append(e),this._process(),this},finalize:function(e){e&&this._append(e);var r=this._doFinalize();return r},blockSize:16,_createHelper:function(e){return function(r,t){return new e.init(t).finalize(r)}},_createHmacHelper:function(e){return function(r,t){return new p.HMAC.init(e,t).finalize(r)}}});var p=t.algo={};return t}(Math);return e});
+},{}],73:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){return function(){var r=e,t=r.lib,n=t.WordArray,i=r.enc;i.Base64={stringify:function(e){var r=e.words,t=e.sigBytes,n=this._map;e.clamp();for(var i=[],o=0;t>o;o+=3)for(var c=255&r[o>>>2]>>>24-8*(o%4),f=255&r[o+1>>>2]>>>24-8*((o+1)%4),s=255&r[o+2>>>2]>>>24-8*((o+2)%4),a=c<<16|f<<8|s,u=0;4>u&&t>o+.75*u;u++)i.push(n.charAt(63&a>>>6*(3-u)));var p=n.charAt(64);if(p)for(;i.length%4;)i.push(p);return i.join("")},parse:function(e){var r=e.length,t=this._map,i=t.charAt(64);if(i){var o=e.indexOf(i);-1!=o&&(r=o)}for(var c=[],f=0,s=0;r>s;s++)if(s%4){var a=t.indexOf(e.charAt(s-1))<<2*(s%4),u=t.indexOf(e.charAt(s))>>>6-2*(s%4);c[f>>>2]|=(a|u)<<24-8*(f%4),f++}return n.create(c,f)},_map:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="}}(),e.enc.Base64});
+},{"./core":72}],74:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){return e.enc.Utf8});
+},{"./core":72}],75:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core"),require("./sha1"),require("./hmac")):"function"==typeof define&&define.amd?define(["./core","./sha1","./hmac"],r):r(e.CryptoJS)})(this,function(e){return function(){var r=e,t=r.lib,i=t.Base,n=t.WordArray,o=r.algo,a=o.MD5,s=o.EvpKDF=i.extend({cfg:i.extend({keySize:4,hasher:a,iterations:1}),init:function(e){this.cfg=this.cfg.extend(e)},compute:function(e,r){for(var t=this.cfg,i=t.hasher.create(),o=n.create(),a=o.words,s=t.keySize,c=t.iterations;s>a.length;){f&&i.update(f);var f=i.update(e).finalize(r);i.reset();for(var u=1;c>u;u++)f=i.finalize(f),i.reset();o.concat(f)}return o.sigBytes=4*s,o}});r.EvpKDF=function(e,r,t){return s.create(t).compute(e,r)}}(),e.EvpKDF});
+},{"./core":72,"./hmac":76,"./sha1":78}],76:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){(function(){var r=e,t=r.lib,n=t.Base,i=r.enc,o=i.Utf8,a=r.algo;a.HMAC=n.extend({init:function(e,r){e=this._hasher=new e.init,"string"==typeof r&&(r=o.parse(r));var t=e.blockSize,n=4*t;r.sigBytes>n&&(r=e.finalize(r)),r.clamp();for(var i=this._oKey=r.clone(),a=this._iKey=r.clone(),s=i.words,c=a.words,f=0;t>f;f++)s[f]^=1549556828,c[f]^=909522486;i.sigBytes=a.sigBytes=n,this.reset()},reset:function(){var e=this._hasher;e.reset(),e.update(this._iKey)},update:function(e){return this._hasher.update(e),this},finalize:function(e){var r=this._hasher,t=r.finalize(e);r.reset();var n=r.finalize(this._oKey.clone().concat(t));return n}})})()});
+},{"./core":72}],77:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){return function(r){function t(e,r,t,n,i,o,c){var s=e+(r&t|~r&n)+i+c;return(s<<o|s>>>32-o)+r}function n(e,r,t,n,i,o,c){var s=e+(r&n|t&~n)+i+c;return(s<<o|s>>>32-o)+r}function i(e,r,t,n,i,o,c){var s=e+(r^t^n)+i+c;return(s<<o|s>>>32-o)+r}function o(e,r,t,n,i,o,c){var s=e+(t^(r|~n))+i+c;return(s<<o|s>>>32-o)+r}var c=e,s=c.lib,f=s.WordArray,a=s.Hasher,u=c.algo,p=[];(function(){for(var e=0;64>e;e++)p[e]=0|4294967296*r.abs(r.sin(e+1))})();var d=u.MD5=a.extend({_doReset:function(){this._hash=new f.init([1732584193,4023233417,2562383102,271733878])},_doProcessBlock:function(e,r){for(var c=0;16>c;c++){var s=r+c,f=e[s];e[s]=16711935&(f<<8|f>>>24)|4278255360&(f<<24|f>>>8)}var a=this._hash.words,u=e[r+0],d=e[r+1],h=e[r+2],y=e[r+3],m=e[r+4],l=e[r+5],x=e[r+6],q=e[r+7],g=e[r+8],v=e[r+9],b=e[r+10],S=e[r+11],A=e[r+12],w=e[r+13],_=e[r+14],C=e[r+15],B=a[0],H=a[1],j=a[2],J=a[3];B=t(B,H,j,J,u,7,p[0]),J=t(J,B,H,j,d,12,p[1]),j=t(j,J,B,H,h,17,p[2]),H=t(H,j,J,B,y,22,p[3]),B=t(B,H,j,J,m,7,p[4]),J=t(J,B,H,j,l,12,p[5]),j=t(j,J,B,H,x,17,p[6]),H=t(H,j,J,B,q,22,p[7]),B=t(B,H,j,J,g,7,p[8]),J=t(J,B,H,j,v,12,p[9]),j=t(j,J,B,H,b,17,p[10]),H=t(H,j,J,B,S,22,p[11]),B=t(B,H,j,J,A,7,p[12]),J=t(J,B,H,j,w,12,p[13]),j=t(j,J,B,H,_,17,p[14]),H=t(H,j,J,B,C,22,p[15]),B=n(B,H,j,J,d,5,p[16]),J=n(J,B,H,j,x,9,p[17]),j=n(j,J,B,H,S,14,p[18]),H=n(H,j,J,B,u,20,p[19]),B=n(B,H,j,J,l,5,p[20]),J=n(J,B,H,j,b,9,p[21]),j=n(j,J,B,H,C,14,p[22]),H=n(H,j,J,B,m,20,p[23]),B=n(B,H,j,J,v,5,p[24]),J=n(J,B,H,j,_,9,p[25]),j=n(j,J,B,H,y,14,p[26]),H=n(H,j,J,B,g,20,p[27]),B=n(B,H,j,J,w,5,p[28]),J=n(J,B,H,j,h,9,p[29]),j=n(j,J,B,H,q,14,p[30]),H=n(H,j,J,B,A,20,p[31]),B=i(B,H,j,J,l,4,p[32]),J=i(J,B,H,j,g,11,p[33]),j=i(j,J,B,H,S,16,p[34]),H=i(H,j,J,B,_,23,p[35]),B=i(B,H,j,J,d,4,p[36]),J=i(J,B,H,j,m,11,p[37]),j=i(j,J,B,H,q,16,p[38]),H=i(H,j,J,B,b,23,p[39]),B=i(B,H,j,J,w,4,p[40]),J=i(J,B,H,j,u,11,p[41]),j=i(j,J,B,H,y,16,p[42]),H=i(H,j,J,B,x,23,p[43]),B=i(B,H,j,J,v,4,p[44]),J=i(J,B,H,j,A,11,p[45]),j=i(j,J,B,H,C,16,p[46]),H=i(H,j,J,B,h,23,p[47]),B=o(B,H,j,J,u,6,p[48]),J=o(J,B,H,j,q,10,p[49]),j=o(j,J,B,H,_,15,p[50]),H=o(H,j,J,B,l,21,p[51]),B=o(B,H,j,J,A,6,p[52]),J=o(J,B,H,j,y,10,p[53]),j=o(j,J,B,H,b,15,p[54]),H=o(H,j,J,B,d,21,p[55]),B=o(B,H,j,J,g,6,p[56]),J=o(J,B,H,j,C,10,p[57]),j=o(j,J,B,H,x,15,p[58]),H=o(H,j,J,B,w,21,p[59]),B=o(B,H,j,J,m,6,p[60]),J=o(J,B,H,j,S,10,p[61]),j=o(j,J,B,H,h,15,p[62]),H=o(H,j,J,B,v,21,p[63]),a[0]=0|a[0]+B,a[1]=0|a[1]+H,a[2]=0|a[2]+j,a[3]=0|a[3]+J},_doFinalize:function(){var e=this._data,t=e.words,n=8*this._nDataBytes,i=8*e.sigBytes;t[i>>>5]|=128<<24-i%32;var o=r.floor(n/4294967296),c=n;t[(i+64>>>9<<4)+15]=16711935&(o<<8|o>>>24)|4278255360&(o<<24|o>>>8),t[(i+64>>>9<<4)+14]=16711935&(c<<8|c>>>24)|4278255360&(c<<24|c>>>8),e.sigBytes=4*(t.length+1),this._process();for(var s=this._hash,f=s.words,a=0;4>a;a++){var u=f[a];f[a]=16711935&(u<<8|u>>>24)|4278255360&(u<<24|u>>>8)}return s},clone:function(){var e=a.clone.call(this);return e._hash=this._hash.clone(),e}});c.MD5=a._createHelper(d),c.HmacMD5=a._createHmacHelper(d)}(Math),e.MD5});
+},{"./core":72}],78:[function(require,module,exports){
+(function(e,r){"object"==typeof exports?module.exports=exports=r(require("./core")):"function"==typeof define&&define.amd?define(["./core"],r):r(e.CryptoJS)})(this,function(e){return function(){var r=e,t=r.lib,n=t.WordArray,i=t.Hasher,o=r.algo,s=[],c=o.SHA1=i.extend({_doReset:function(){this._hash=new n.init([1732584193,4023233417,2562383102,271733878,3285377520])},_doProcessBlock:function(e,r){for(var t=this._hash.words,n=t[0],i=t[1],o=t[2],c=t[3],a=t[4],f=0;80>f;f++){if(16>f)s[f]=0|e[r+f];else{var u=s[f-3]^s[f-8]^s[f-14]^s[f-16];s[f]=u<<1|u>>>31}var d=(n<<5|n>>>27)+a+s[f];d+=20>f?(i&o|~i&c)+1518500249:40>f?(i^o^c)+1859775393:60>f?(i&o|i&c|o&c)-1894007588:(i^o^c)-899497514,a=c,c=o,o=i<<30|i>>>2,i=n,n=d}t[0]=0|t[0]+n,t[1]=0|t[1]+i,t[2]=0|t[2]+o,t[3]=0|t[3]+c,t[4]=0|t[4]+a},_doFinalize:function(){var e=this._data,r=e.words,t=8*this._nDataBytes,n=8*e.sigBytes;return r[n>>>5]|=128<<24-n%32,r[(n+64>>>9<<4)+14]=Math.floor(t/4294967296),r[(n+64>>>9<<4)+15]=t,e.sigBytes=4*r.length,this._process(),this._hash},clone:function(){var e=i.clone.call(this);return e._hash=this._hash.clone(),e}});r.SHA1=i._createHelper(c),r.HmacSHA1=i._createHmacHelper(c)}(),e.SHA1});
+},{"./core":72}],79:[function(require,module,exports){
 // Diacritics.js
 // 
 // Started as something to be an equivalent of the Google Java Library diacritics library for JavaScript.
@@ -25178,7 +23282,7 @@ var Buffer=require("__browserify_Buffer");(function () {
 
   return output;
 });
-},{}],78:[function(require,module,exports){
+},{}],80:[function(require,module,exports){
 var process=require("__browserify_process");// vim:ts=4:sts=4:sw=4:
 /*!
  *
@@ -27084,7 +25188,7 @@ return Q;
 
 });
 
-},{"__browserify_process":66}],79:[function(require,module,exports){
+},{"__browserify_process":68}],81:[function(require,module,exports){
 (function(global) {
 
   var WORKER_PATH;
@@ -27205,7 +25309,7 @@ return Q;
         self.audio.currentTime = 0;
         self.playing = false;
         btnPlay.className = 'btn-play';
-        btnPlay.innerHTML = '<span class="icon-play"></span>';
+        btnPlay.innerHTML = '<span class="recorder-icon-play"></span>';
       } else {
         self.stopRecording();
         removeClass(config.element, 'recording');
@@ -27232,7 +25336,7 @@ return Q;
         btnStop.disabled = true;
         btnRecord.disabled = false;
         btnPlay.className = 'btn-play';
-        btnPlay.innerHTML = '<span class="icon-play"></span>';
+        btnPlay.innerHTML = '<span class="recorder-icon-play"></span>';
       } else {
         if (self.audio === null) {
           var reader = new FileReader();
@@ -27247,7 +25351,7 @@ return Q;
           btnStop.disabled = false;
           btnRecord.disabled = true;
           btnPlay.className = 'btn-pause';
-          btnPlay.innerHTML = '<span class="icon-pause"></span>';
+          btnPlay.innerHTML = '<span class="recorder-icon-pause"></span>';
         }
       }
     };
@@ -27402,19 +25506,19 @@ return Q;
     var initButtons = function() {
       btnRecord.onclick = self.toggleRecording;
       btnRecord.className = 'btn-record';
-      btnRecord.innerHTML = '<span class="vumeter"></span><span class="icon-record"></span>';
+      btnRecord.innerHTML = '<span class="vumeter"></span><span class="recorder-icon-record"></span>';
       btnRecord.disabled = false;
       btnStop.onclick = self.stop;
       btnStop.className = 'btn-stop';
-      btnStop.innerHTML = '<span class="icon-stop"></span>';
+      btnStop.innerHTML = '<span class="recorder-icon-stop"></span>';
       btnStop.disabled = true;
       btnPlay.onclick = self.play;
       btnPlay.className = 'btn-play';
-      btnPlay.innerHTML = '<span class="icon-play"></span>';
+      btnPlay.innerHTML = '<span class="recorder-icon-play"></span>';
       btnPlay.disabled = true;
       btnSave.onclick = self.save;
       btnSave.className = 'btn-save';
-      btnSave.innerHTML = '<span class="icon-upload"></span>';
+      btnSave.innerHTML = '<span class="recorder-icon-upload"></span>';
       btnSave.disabled = true;
     };
 
@@ -27459,7 +25563,7 @@ return Q;
   };
 
   var startUserMedia = function(stream) {
-    if (globa.audio_source) {
+    if (global.audio_source) {
       console.log("source already ready");
       return;
     }
@@ -27485,7 +25589,7 @@ return Q;
 
 })(exports || window);
 
-},{}],80:[function(require,module,exports){
+},{}],82:[function(require,module,exports){
 /*
  * textgrid
  * https://github.com/OpenSourceFieldlinguistics/PraatTextGridJS
@@ -27766,7 +25870,7 @@ return Q;
 
 }(typeof exports === "object" && exports || this));
 
-},{}],81:[function(require,module,exports){
+},{}],83:[function(require,module,exports){
 //     Underscore.js 1.7.0
 //     http://underscorejs.org
 //     (c) 2009-2014 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -29183,10 +27287,10 @@ return Q;
   }
 }.call(this));
 
-},{}],82:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
 module.exports={
   "name": "fielddb",
-  "version": "2.32.0",
+  "version": "2.45.3",
   "description": "An offline/online field database which adapts to its user's terminology and I-Language",
   "homepage": "https://github.com/OpenSourceFieldlinguistics/FieldDB/issues/milestones?state=closed",
   "repository": {
@@ -29230,7 +27334,7 @@ module.exports={
     "diacritic": "0.0.2",
     "mime": "^1.2.11",
     "q": "1.0.1",
-    "recordmp3js": "~0.2.0",
+    "recordmp3js": "0.5.0",
     "textgrid": "2.2.0",
     "underscore": "^1.6.0"
   },
