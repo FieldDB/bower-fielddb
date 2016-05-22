@@ -1,13 +1,13 @@
 {
   "name": "fielddb",
-  "version": "3.6.2",
-  "homepage": "http://opensourcefieldlinguistics.github.io/FieldDB/",
+  "version": "4.4.22",
+  "homepage": "http://fielddb.github.io/FieldDB/",
   "bugs": {
-    "url": "https://github.com/OpenSourceFieldlinguistics/FieldDB/issues"
+    "url": "https://github.com/FieldDB/FieldDB/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/OpenSourceFieldlinguistics/FieldDB.git"
+    "url": "git://github.com/FieldDB/FieldDB.git"
   },
   "authors": [
     "cesine <cesine@yahoo.com>",
@@ -30,7 +30,7 @@
     "Pablo Duboue <pablo.duboue@gmail.com>",
     "Oriana <oriana.kilbourn-ceron@mail.mcgill.ca>"
   ],
-  "license": "Apache 2.0",
+  "license": "Apache-2.0",
   "ignore": [
     "Gruntfile.js",
     "angular_client",
@@ -39,12 +39,13 @@
     "bower.json",
     "bower_components",
     "build",
-    "couchapp_activities",
-    "couchapp_cleaning",
-    "couchapp_dev",
-    "couchapp_export",
-    "couchapp_learnx",
-    "couchapp_lexicon",
+    "map_reduce_activities",
+    "map_reduce_cleaning",
+    "map_reduce_unused",
+    "map_reduce_data",
+    "map_reduce_export",
+    "map_reduce_learnx",
+    "map_reduce_lexicon",
     "couchapp_minified",
     "docs",
     "install_linux_download_and_set_up_fielddb_servers_for_new_developers_quick_start.sh",
@@ -64,7 +65,5 @@
     "tests"
   ],
   "dependencies": {},
-  "devDependencies": {
-    "jasmine": "~2.2.1"
-  }
+  "main": "fielddb.js"
 }
